@@ -1,0 +1,96 @@
+[project]
+name = "valorant-pricing-model"
+version = "0.1.0"
+description = "Live pricing engine for Valorant BO3 series + per-map Kalshi markets"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+authors = [
+    { name = "jxc2008", email = "jxc2008@nyu.edu" },
+]
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "hypothesis>=6.100",
+    "ruff>=0.6.0",
+    "mypy>=1.11",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+    "reference/",
+    "models/",
+    "logs/",
+    ".venv/",
+]
+
+[tool.ruff.lint]
+# Conservative starter set; tighten in later phases.
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "UP",     # pyupgrade
+    "N",      # pep8-naming
+    "SIM",    # flake8-simplify
+]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["N802", "N803"]  # test fn / param names may be Pascal-ish
+"scripts/**" = ["N999"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+]
+
+[tool.coverage.run]
+source = ["src/pricing"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 0  # Phase 0 has no tests; coverage gate is enforced in Phase 5 (CON-coverage-target = 80%).
+show_missing = true
+skip_covered = false
+
+[tool.mypy]
+# Default: gradual typing for non-pricing layers per CONVENTIONS.md.
+python_version = "3.11"
+files = ["src", "tests"]
+exclude = ["reference/", "models/", "logs/", "scripts/"]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# CON-mypy-strict-pricing: the math layer must type-check fully.
+module = "src.pricing.*"
+strict = true
+disallow_any_explicit = false  # allow Any in narrow places if explicitly written
+warn_return_any = true
