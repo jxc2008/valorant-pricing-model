@@ -2,7 +2,7 @@
 
 **Project:** Valorant Live Pricing Model
 **Last activity:** 2026-04-27
-**Last activity description:** Bootstrapped GSD planning artifacts (PROJECT.md, REQUIREMENTS.md, ROADMAP.md, STATE.md) from existing prd.md + roadmap.md via doc-synthesizer intel.
+**Last activity description:** Phase 0 (Foundation) planned — 3 plans across 2 waves, verification passed after one revision round (3 warnings fixed: pytest-collect exit-5 sentinel, uv.lock-now-committed, getattr-removed-from-resolve_dry_run).
 
 ---
 
@@ -16,9 +16,9 @@
 
 ## Current Position
 
-- **Current phase:** none (planning artifacts just bootstrapped)
-- **Current plan:** none
-- **Status:** awaiting first `/gsd-plan-phase` invocation
+- **Current phase:** Phase 0 — Foundation
+- **Current plan:** none (3 plans ready to execute: 00-01, 00-02, 00-03)
+- **Status:** Ready to execute — run `/gsd-execute-phase 0`
 - **Progress:** 0/8 phases complete (0%)
 
 ```
@@ -36,7 +36,7 @@ Phase 7  [          ] Pending
 
 | Phase | Status | Plans | Completed |
 |---|---|---|---|
-| 0 — Foundation | Pending | none | — |
+| 0 — Foundation | Ready to execute | 3 (00-01, 00-02, 00-03) | — |
 | 1 — Core pricing engine | Pending | none | — |
 | 2 — Round-event data | Pending | none | — |
 | 3 — Live ingestion layer | Pending | none | — |
@@ -86,6 +86,6 @@ None.
 
 ## Session Continuity
 
-- **Last session ended:** 2026-04-27 — initial GSD bootstrap from existing prd.md + roadmap.md.
-- **Next action:** invoke `/gsd-discuss-phase 0` (recommended) or `/gsd-plan-phase 0` directly to begin Phase 0 (Foundation). Phases 1, 2, 3 can run in parallel after Phase 0; the discussion phase is most valuable for Phase 2 (DEC-017 path-decision gate) and Phase 3 (ingestion architecture).
+- **Last session ended:** 2026-04-27 — Phase 0 planned (3 plans, verified).
+- **Next action:** `/gsd-execute-phase 0` to run all three Phase 0 plans (Wave 1: 00-01 project structure + tooling; Wave 2: 00-02 domain constants + 00-03 dry-run-default entry point in parallel). After Phase 0 completes, Phases 1, 2, 3 unblock for parallel planning; the discussion phase is most valuable for Phase 2 (DEC-017 path-decision gate) and Phase 3 (ingestion architecture).
 - **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs to future plan-phase agents. Constraint detail in `.planning/intel/constraints.md`.

@@ -45,7 +45,10 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
   1. `src/{pricing,state,ingestion,quoting,sizing,config}/` directory tree exists; `tests/`, `scripts/`, `data/`, `models/`, `reference/` siblings in place (DEC-019).
   2. `pyproject.toml` declares Python 3.11 + uv-managed deps; `mypy --strict src/pricing/` runs (even on empty modules); `ruff` passes (DEC-014).
   3. `src/config/constants.py` declares baseline values (`SHRINK_PRIOR=15.0`, `SIGNAL_SCALE=0.10`, `GUN_WIN_RATE=0.822`, `KELLY_MULTIPLIER=0.5`, `PER_MARKET_CAP_FRAC=0.05`, `VEGA_DIRECTIONAL_THRESHOLD=0.04`, all four `KILL_SWITCH_*` constants, `REGULATION_HALF=12`, `WIN_THRESHOLD=13`) per DEC-016 / `CON-domain-constants-baseline`.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 00-01-project-structure-and-tooling-PLAN.md — pyproject.toml + uv + ruff + mypy --strict on src/pricing/ + package skeleton (Wave 1)
+- [ ] 00-02-domain-constants-PLAN.md — src/config/constants.py with all 12 PRD thresholds + tests/config/test_constants.py invariants (Wave 2)
+- [ ] 00-03-dry-run-default-entry-point-PLAN.md — src/main.py + src/__main__.py CLI with --match/--live + tests/test_main.py safety contract (Wave 2)
 **See**: `roadmap.md` §0 (0.1 layout / 0.2 tooling / 0.3 data store / 0.4 configuration)
 
 ### Phase 1: Core pricing engine
