@@ -24,7 +24,7 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
 
 ## Phases
 
-- [ ] **Phase 0: Foundation** — Project structure, tooling, config skeleton (~2 days).
+- [x] **Phase 0: Foundation** — Project structure, tooling, config skeleton (~2 days). (completed 2026-04-27)
 - [ ] **Phase 1: Core pricing engine** — Generalized BO3 DP + Bradley-Terry blend + pistol/anti-eco modeling + canonical `live_theo` (~5–7 days).
 - [ ] **Phase 2: Round-event data** — rib.gg/bo3.gg API probe + `round_events` dataset OR OCR-driven labeling OR defer (~3 days API path / ~2 weeks OCR path).
 - [ ] **Phase 3: Live ingestion layer** — `MatchState` engine + scoreboard polling + OCR pipeline + text listeners + cross-source arbiter + latency instrumentation (~7–10 days).
@@ -47,8 +47,8 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
   3. `src/config/constants.py` declares baseline values (`SHRINK_PRIOR=15.0`, `SIGNAL_SCALE=0.10`, `GUN_WIN_RATE=0.822`, `KELLY_MULTIPLIER=0.5`, `PER_MARKET_CAP_FRAC=0.05`, `VEGA_DIRECTIONAL_THRESHOLD=0.04`, all four `KILL_SWITCH_*` constants, `REGULATION_HALF=12`, `WIN_THRESHOLD=13`) per DEC-016 / `CON-domain-constants-baseline`.
 **Plans**: 3 plans
 - [x] 00-01-project-structure-and-tooling-PLAN.md — pyproject.toml + uv + ruff + mypy --strict on src/pricing/ + package skeleton (Wave 1)
-- [ ] 00-02-domain-constants-PLAN.md — src/config/constants.py with all 12 PRD thresholds + tests/config/test_constants.py invariants (Wave 2)
-- [ ] 00-03-dry-run-default-entry-point-PLAN.md — src/main.py + src/__main__.py CLI with --match/--live + tests/test_main.py safety contract (Wave 2)
+- [x] 00-02-domain-constants-PLAN.md — src/config/constants.py with all 12 PRD thresholds + tests/config/test_constants.py invariants (Wave 2)
+- [x] 00-03-dry-run-default-entry-point-PLAN.md — src/main.py + src/__main__.py CLI with --match/--live + tests/test_main.py safety contract (Wave 2)
 **See**: `roadmap.md` §0 (0.1 layout / 0.2 tooling / 0.3 data store / 0.4 configuration)
 
 ### Phase 1: Core pricing engine
@@ -140,7 +140,7 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
 
 | Phase | Plans Complete | Status | Completed |
 |---|---|---|---|
-| 0. Foundation | 1/3 | In Progress|  |
+| 0. Foundation | 3/3 | Complete   | 2026-04-27 |
 | 1. Core pricing engine | 0/0 | Not started | — |
 | 2. Round-event data | 0/0 | Not started | — |
 | 3. Live ingestion layer | 0/0 | Not started | — |
