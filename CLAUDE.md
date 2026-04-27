@@ -77,10 +77,10 @@ KELLY_MULTIPLIER          = 0.5
 PER_MARKET_CAP_FRAC       = 0.05     # TBD — depends on bankroll
 
 # Kill switches
-KILL_STALENESS_S          = 5.0
-KILL_DEVIATION_C          = 20
-KILL_BRIER_BOUND          = 0.30
-KILL_BRIER_WINDOW         = 50
+KILL_SWITCH_STALENESS_S   = 5.0
+KILL_SWITCH_DEVIATION_C   = 20
+KILL_SWITCH_BRIER_BOUND   = 0.30
+KILL_SWITCH_BRIER_WINDOW  = 50
 
 # Mode flip
 VEGA_DIRECTIONAL_THRESHOLD = 0.04    # TBD — calibrate after 20+ matches
