@@ -140,7 +140,7 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
 
 | Phase | Plans Complete | Status | Completed |
 |---|---|---|---|
-| 0. Foundation | 3/3 | Complete   | 2026-04-27 |
+| 0. Foundation | 3/3 | Complete    | 2026-04-27 |
 | 1. Core pricing engine | 0/0 | Not started | — |
 | 2. Round-event data | 0/0 | Not started | — |
 | 3. Live ingestion layer | 0/0 | Not started | — |
