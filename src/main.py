@@ -41,7 +41,19 @@ DRY_RUN_DEFAULT: Final[bool] = True
 
 Promotion to live trading requires the operator to type ``--live`` at the
 command line. There is no other way to flip this.
+
+NOTE: This constant is for *documentation* only. The dry-run safety contract
+(CLAUDE.md rule 13 / DEC-022) is enforced by the literal ``True`` returned
+from :func:`resolve_dry_run`. The literal there must NEVER be replaced by a
+reference to this attribute, because a module-attribute reference is
+runtime-mutable (``Final`` blocks ``mypy --strict`` reassignment but not
+runtime mutation), and the safety default must be unfakeable.
 """
+
+# Defensive sanity check: keep the doc-constant honest. If someone ever
+# changes the literal at line 39 without updating the docstring, this assert
+# fires at import time.
+assert DRY_RUN_DEFAULT is True, "DRY_RUN_DEFAULT must remain True (CLAUDE.md rule 13)"
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -100,9 +112,20 @@ def resolve_dry_run(args: argparse.Namespace) -> bool:
     # trading, dry_run is opt-OUT of safety. Centralizing the inversion
     # in one function means downstream code only sees ``dry_run: bool`` and
     # never has to reason about the CLI flag name.
-    if args.live:
+    #
+    # SAFETY: the literal ``True`` here IS the dry-run safety contract
+    # (CLAUDE.md rule 13 / DEC-022). Do NOT replace with ``DRY_RUN_DEFAULT``
+    # -- that constant is documentation, not control flow. Routing the
+    # default through a module attribute would make it runtime-mutable
+    # (``src.main.DRY_RUN_DEFAULT = False`` from any importer would silently
+    # flip the bot live without ``--live``).
+    #
+    # The explicit two-branch form (rather than ``return not args.live``) is
+    # deliberate: it makes the safety default a literal that grep-finds as
+    # ``return True`` and pairs visibly with ``return False``. Do not collapse.
+    if args.live:  # noqa: SIM103 -- explicit branches make safety contract grep-able
         return False
-    return DRY_RUN_DEFAULT
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:
