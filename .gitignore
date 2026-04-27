@@ -53,3 +53,15 @@ logs/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# uv
+.uv/
+
+# Generated DP table + round events (Phase 1 / Phase 2 outputs)
+models/dp_table.pkl
+data/round_events*
+data/round_events.sqlite
+
+# Tooling caches not yet covered above
+.tox/
+.nox/
