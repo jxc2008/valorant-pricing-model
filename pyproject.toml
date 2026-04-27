@@ -69,7 +69,10 @@ addopts = [
 ]
 
 [tool.coverage.run]
-source = ["src/pricing"]
+# Broad scope so the Phase 5 80% gate (CON-coverage-target) measures the
+# whole package, not just the math layer. Phase 0 ships tests against
+# src/main.py and src/config/constants.py; both must be counted.
+source = ["src"]
 branch = true
 
 [tool.coverage.report]
