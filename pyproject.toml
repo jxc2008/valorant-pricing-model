@@ -84,7 +84,9 @@ skip_covered = false
 # Default: gradual typing for non-pricing layers per CONVENTIONS.md.
 python_version = "3.11"
 files = ["src", "tests"]
-exclude = ["reference/", "models/", "logs/", "scripts/"]
+# No `exclude = [...]` here: `files` already pins the scope to src/ and
+# tests/, neither of which contains reference/, models/, logs/, or
+# scripts/. Adding excludes for those paths would be dead config.
 warn_unused_configs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
