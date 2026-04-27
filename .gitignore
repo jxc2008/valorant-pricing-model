@@ -1,0 +1,55 @@
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+valorant*.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+
+# Generated / large
+data/*.json
+data/*.csv
+data/*.parquet
+data/*.db
+data/*.sqlite
+models/
+logs/
+!data/.gitkeep
+!models/.gitkeep
+!logs/.gitkeep
+
+# Half-win-rates is salvaged input — keep it
+!data/half_win_rates.json
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
