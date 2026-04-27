@@ -52,14 +52,28 @@ def test_all_expected_constants_are_importable() -> None:
 
 
 def test_no_unexpected_uppercase_names_leak_in() -> None:
-    """Catch typos / accidental new constants that weren't added to EXPECTED_NAMES."""
-    actual_uppercase = {
-        n
-        for n in dir(constants)
-        if n.isupper() and not n.startswith("_") and not callable(getattr(constants, n))
+    """Catch typos / accidental new constants that weren't added to EXPECTED_NAMES.
+
+    Uses ``__annotations__`` rather than ``dir()`` as the source of truth so
+    imported all-caps names cannot trip this test for the wrong reason.
+
+    Every legitimate constant in ``src/config/constants.py`` is declared with
+    a PEP-526 ``Final[...]`` annotation (enforced separately by
+    ``test_constant_has_expected_type``), which means it lands in
+    ``constants.__annotations__``. An ``import``-side name like
+    ``from typing import TYPE_CHECKING`` does NOT add to ``__annotations__``,
+    so it is correctly excluded here. The (vanishingly small) failure mode
+    where someone defines a new threshold WITHOUT a ``Final[...]`` annotation
+    would also fail ``test_constant_has_expected_type``, so the contract is
+    redundant-but-tight.
+    """
+    annotated_uppercase = {
+        name
+        for name in constants.__annotations__
+        if name.isupper() and not name.startswith("_")
     }
     expected = set(EXPECTED_NAMES)
-    extras = actual_uppercase - expected
+    extras = annotated_uppercase - expected
     assert not extras, (
         f"Unexpected UPPER_CASE names in constants module: {extras}. "
         f"If intentional, add to EXPECTED_NAMES in this test."
