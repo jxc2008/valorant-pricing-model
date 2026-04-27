@@ -24,9 +24,8 @@ Source of truth
 Naming
 ------
 ``UPPER_SNAKE_CASE`` for all module-level constants. Kill-switch constants use the
-``KILL_SWITCH_*`` prefix per roadmap.md §0.4 (user-resolved 2026-04-27); the
-shorter ``KILL_*`` form in CLAUDE.md "Domain constants" is the older form and
-will be reconciled in a doc-fix PR.
+``KILL_SWITCH_*`` prefix per roadmap.md §0.4 (user-resolved 2026-04-27) and
+CLAUDE.md "Domain constants" lines 80-83.
 
 Type annotations
 ----------------
