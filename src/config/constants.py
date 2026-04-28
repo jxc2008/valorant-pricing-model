@@ -76,6 +76,36 @@ WIN_THRESHOLD: Final[int] = 13
 Source: CLAUDE.md "Domain constants" / reference/theo_engine.py:35.
 """
 
+CONVICTION_CLIP_LOW: Final[float] = 0.01
+"""Lower bound for theo_series and theo_map[i] clip at live_theo output.
+
+Source: DEC-012 / CLAUDE.md rule 6 / CON-conviction-clip / 01-RESEARCH.md §12.
+Replaces the audit engine's heterogeneous `[0.05, 0.95]` and `[0.03, 0.97]`
+clips with a unified, wider `[0.01, 0.99]` band (PRD §12.2 #1).
+"""
+
+CONVICTION_CLIP_HIGH: Final[float] = 0.99
+"""Upper bound for theo_series and theo_map[i] clip at live_theo output.
+
+Source: DEC-012 / CLAUDE.md rule 6 / CON-conviction-clip / 01-RESEARCH.md §12.
+"""
+
+MIN_ROUNDS_FULL_WEIGHT: Final[int] = 15
+"""Effective rounds for full data confidence in the audit-engine `_data_weight`
+formula (D-09). Min-over-teams normalizer for confidence aggregation.
+
+Source: reference/theo_engine.py:36 / D-09 / 01-RESEARCH.md §12. Used by
+src/pricing/live_theo.py::_data_weight_for_map only.
+"""
+
+BT_BLEND_EPSILON: Final[float] = 1e-6
+"""Bradley-Terry blend input clip — protects against 0/0 at boundary inputs.
+
+Source: CON-bradley-terry-formula / 01-RESEARCH.md §3 (Pitfall 4) / §12.
+Inputs to blend.round_p are clipped to [BT_BLEND_EPSILON, 1 - BT_BLEND_EPSILON]
+BEFORE the formula. Output is NEVER clipped — that breaks BT symmetry.
+"""
+
 # --------------------------------------------------------------------------- #
 # Sizing                                                                      #
 # --------------------------------------------------------------------------- #
