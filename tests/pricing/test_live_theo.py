@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import re
+from pathlib import Path
 
 import pytest
 
@@ -26,7 +28,7 @@ from src.config.constants import (
     SHRINK_PRIOR,
 )
 from src.pricing.data import HalfRates, MatchState, TheoOutput
-from src.pricing.dp import BO3State
+from src.pricing.dp import BO3State, _advance_to_next_map
 from src.pricing.live_theo import (
     LiveTheoEngine,
     _bo3_state_from_match_state,
@@ -621,5 +623,207 @@ def test_live_theo_engine_accepts_optional_round_conclusion() -> None:
     engine = LiveTheoEngine(half_rates=hr, round_conclusion=lookup.lookup)
     out = engine(state)
     assert isinstance(out, TheoOutput)
+
+
+# --------------------------------------------------------------------------- #
+# 5. Public surface + integration (Task 3)                                    #
+# --------------------------------------------------------------------------- #
+
+
+def test_public_imports_only() -> None:
+    """REQ-canonical-live-theo: only LiveTheoEngine, TheoOutput, MatchState,
+    HalfRates are exported. DEC-010 forbids series_theo / series_theo_no_sides /
+    series_theo_from_map_probs.
+    """
+    import src.pricing as pricing
+
+    assert set(pricing.__all__) == {
+        "LiveTheoEngine",
+        "TheoOutput",
+        "MatchState",
+        "HalfRates",
+    }
+    forbidden = {
+        "series_theo",
+        "series_theo_no_sides",
+        "series_theo_from_map_probs",
+        "model_series_prob",
+        "_signal_strength",
+    }
+    assert not (forbidden & set(pricing.__all__))
+
+
+def test_top_level_imports_resolve() -> None:
+    """`from src.pricing import LiveTheoEngine, TheoOutput, MatchState, HalfRates` succeeds."""
+    from src.pricing import (  # noqa: F401
+        HalfRates,
+        LiveTheoEngine,
+        MatchState,
+        TheoOutput,
+    )
+
+
+def test_forbidden_audit_triplet_symbols_absent_from_source() -> None:
+    """DEC-010 / PRD §12.3 / CRule 1: no `series_theo*` function definitions
+    anywhere in src/pricing/.
+
+    Only top-level `def` declarations are matched; mentions in module docstrings
+    or comments (e.g., "Replaces audit-engine series_theo / series_theo_no_sides
+    / series_theo_from_map_probs triplet") do NOT count.
+    """
+    pricing_dir = Path("src/pricing")
+    forbidden_patterns = [
+        re.compile(r"^def series_theo\b", re.MULTILINE),
+        re.compile(r"^def series_theo_no_sides\b", re.MULTILINE),
+        re.compile(r"^def series_theo_from_map_probs\b", re.MULTILINE),
+        re.compile(r"^def model_series_prob\b", re.MULTILINE),
+        re.compile(r"^def _signal_strength\b", re.MULTILINE),
+    ]
+    for py_file in pricing_dir.glob("*.py"):
+        text = py_file.read_text(encoding="utf-8")
+        for pat in forbidden_patterns:
+            assert not pat.search(text), (
+                f"Forbidden audit-triplet symbol found in {py_file}: {pat.pattern}"
+            )
+
+
+def test_live_theo_marginalization_consistency_dec002() -> None:
+    """DEC-002 / CRule 2: theo_series ≈ theo_map[map_idx] × clip(series_value(state_a_won_current))
+    + (1 − theo_map[map_idx]) × clip(series_value(state_b_won_current)).
+
+    The same DP feeds both theo_series and theo_map[]; this identity holds
+    by marginalization over the current map's outcome.
+    """
+    from src.pricing.dp import series_value
+
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(map_idx=0, a_round=3, b_round=2)
+    engine = LiveTheoEngine(half_rates=hr)
+    out = engine(state)
+
+    bo3 = _bo3_state_from_match_state(state)
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+    next_side = fn.next_side_orient_for(state.map_idx + 1)
+    state_after_a = _advance_to_next_map(bo3, a_won=True, next_side_orient=next_side)
+    state_after_b = _advance_to_next_map(bo3, a_won=False, next_side_orient=next_side)
+
+    v_after_a = series_value(state_after_a, fn)
+    v_after_b = series_value(state_after_b, fn)
+    p_a_wins_current = out.theo_map[state.map_idx]
+
+    expected_unclipped = (
+        p_a_wins_current * v_after_a + (1.0 - p_a_wins_current) * v_after_b
+    )
+    expected = _clip_conviction(expected_unclipped)
+
+    # Note: theo_map[map_idx] is itself clipped in the output, so reconstruction
+    # uses the clipped value. The identity holds approximately within clip tol.
+    assert math.isclose(out.theo_series, expected, rel_tol=1e-3, abs_tol=1e-3)
+
+
+def test_live_theo_end_to_end_synthetic_mid_map() -> None:
+    """Integration: synthetic state at round 7 of map 1 with side flipped.
+    All four TheoOutput fields populated and in valid ranges.
+    """
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(
+        map_idx=1,
+        a_map_score=1,
+        b_map_score=0,
+        a_round=4,
+        b_round=2,  # round 7 of map 1
+        side_orient="a_def",
+        map_side_orients=("a_atk", "a_def", "a_atk"),
+        map_winners=(True, None, None),
+    )
+    engine = LiveTheoEngine(half_rates=hr)
+    out = engine(state)
+    assert CONVICTION_CLIP_LOW <= out.theo_series <= CONVICTION_CLIP_HIGH
+    assert len(out.theo_map) == 3
+    for p in out.theo_map:
+        assert CONVICTION_CLIP_LOW <= p <= CONVICTION_CLIP_HIGH
+    assert out.vega >= 0.0
+    assert 0.0 <= out.confidence <= 1.0
+
+
+def test_live_theo_property_invariants_hypothesis() -> None:
+    """REQ-canonical-live-theo + REQ-theo-{series,map}-output + REQ-confidence-output
+    + REQ-vega-output: the four range invariants hold for any reachable state.
+
+    Hypothesis-driven: generates reachable MatchStates and asserts:
+      - theo_series in [CONVICTION_CLIP_LOW, CONVICTION_CLIP_HIGH]
+      - all theo_map[i] in [CONVICTION_CLIP_LOW, CONVICTION_CLIP_HIGH]
+      - vega >= 0
+      - confidence in [0, 1]
+    """
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+
+    hr = _synthetic_half_rates()
+
+    @given(
+        map_idx=st.integers(min_value=0, max_value=2),
+        a_map_score=st.integers(min_value=0, max_value=1),
+        b_map_score=st.integers(min_value=0, max_value=1),
+        a_round=st.integers(min_value=0, max_value=12),
+        b_round=st.integers(min_value=0, max_value=12),
+        side_orient=st.sampled_from(["a_atk", "a_def"]),
+    )
+    @settings(max_examples=30, deadline=None)
+    def _check(
+        map_idx: int,
+        a_map_score: int,
+        b_map_score: int,
+        a_round: int,
+        b_round: int,
+        side_orient: str,
+    ) -> None:
+        # Reachable-state guard: skip clinched states (terminals, not interesting).
+        if a_map_score >= 2 or b_map_score >= 2:
+            return
+        if a_round >= 13 or b_round >= 13:
+            return
+        # Map_winners derived from map_score (consistency guard):
+        winners: list[bool | None] = []
+        a_wins_remaining = a_map_score
+        b_wins_remaining = b_map_score
+        for k in range(3):
+            if k < map_idx:
+                if a_wins_remaining > 0:
+                    winners.append(True)
+                    a_wins_remaining -= 1
+                elif b_wins_remaining > 0:
+                    winners.append(False)
+                    b_wins_remaining -= 1
+                else:
+                    winners.append(True)  # defensive
+            else:
+                winners.append(None)
+        # Skip if winners can't actually realize the map_idx and scores
+        # (e.g., map_idx=0 requires both scores 0; otherwise inconsistent)
+        if map_idx == 0 and (a_map_score != 0 or b_map_score != 0):
+            return
+        if map_idx == 1 and (a_map_score + b_map_score != 1):
+            return
+        if map_idx == 2 and (a_map_score + b_map_score != 2):
+            return
+        state = _synthetic_match_state(
+            map_idx=map_idx,
+            a_map_score=a_map_score,
+            b_map_score=b_map_score,
+            a_round=a_round,
+            b_round=b_round,
+            side_orient=side_orient,
+            map_winners=tuple(winners),
+        )
+        engine = LiveTheoEngine(half_rates=hr)
+        out = engine(state)
+        assert CONVICTION_CLIP_LOW <= out.theo_series <= CONVICTION_CLIP_HIGH
+        for p in out.theo_map:
+            assert CONVICTION_CLIP_LOW <= p <= CONVICTION_CLIP_HIGH
+        assert out.vega >= 0.0
+        assert 0.0 <= out.confidence <= 1.0
+
+    _check()
 
 
