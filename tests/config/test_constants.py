@@ -27,6 +27,10 @@ EXPECTED_NAMES: tuple[str, ...] = (
     "GUN_WIN_RATE",
     "REGULATION_HALF",
     "WIN_THRESHOLD",
+    "CONVICTION_CLIP_LOW",
+    "CONVICTION_CLIP_HIGH",
+    "MIN_ROUNDS_FULL_WEIGHT",
+    "BT_BLEND_EPSILON",
     # Sizing
     "KELLY_MULTIPLIER",
     "PER_MARKET_CAP_FRAC",
@@ -90,6 +94,10 @@ EXPECTED_TYPES: dict[str, type] = {
     "GUN_WIN_RATE": float,
     "REGULATION_HALF": int,
     "WIN_THRESHOLD": int,
+    "CONVICTION_CLIP_LOW": float,
+    "CONVICTION_CLIP_HIGH": float,
+    "MIN_ROUNDS_FULL_WEIGHT": int,
+    "BT_BLEND_EPSILON": float,
     "KELLY_MULTIPLIER": float,
     "PER_MARKET_CAP_FRAC": float,
     "KILL_SWITCH_STALENESS_S": float,
@@ -137,6 +145,23 @@ def test_regulation_half_and_win_threshold_match_valorant_rules() -> None:
     assert constants.REGULATION_HALF == 12
     assert constants.WIN_THRESHOLD == 13
     assert constants.WIN_THRESHOLD == constants.REGULATION_HALF + 1
+
+
+def test_conviction_clips_are_a_unit_subinterval() -> None:
+    """DEC-012 / CRule 6 — clip band is a symmetric sub-interval of (0, 1)."""
+    assert 0.0 < constants.CONVICTION_CLIP_LOW < 0.5
+    assert 0.5 < constants.CONVICTION_CLIP_HIGH < 1.0
+    assert pytest.approx(1.0) == constants.CONVICTION_CLIP_LOW + constants.CONVICTION_CLIP_HIGH
+
+
+def test_min_rounds_full_weight_positive() -> None:
+    """D-09 — `_data_weight` divisor must be a positive sample size."""
+    assert constants.MIN_ROUNDS_FULL_WEIGHT > 0
+
+
+def test_bt_blend_epsilon_is_a_small_positive_float() -> None:
+    """CON-bradley-terry-formula — epsilon must be a tiny positive number."""
+    assert 0.0 < constants.BT_BLEND_EPSILON < 0.01
 
 
 def test_kelly_multiplier_is_half() -> None:
