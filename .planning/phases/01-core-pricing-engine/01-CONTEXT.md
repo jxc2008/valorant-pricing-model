@@ -13,13 +13,14 @@ Build the single canonical `live_theo(state) → TheoOutput(theo_series, theo_ma
 3. Constant `p1`/`p2` per half → pistol/anti-eco modeled separately (DEC-011)
 4. Conviction clips `[0.05, 0.95]` and `[0.03, 0.97]` → unified `[0.01, 0.99]` (DEC-012)
 
-**In scope:** `src/pricing/{dp,blend,round_types,round_conclusion,live_theo}.py` plus a Phase-1-stub `MatchState` dataclass. Property tests for DP value range, symmetric-input closed form, Bradley-Terry symmetry, and theo_series ↔ theo_map[] consistency.
+**In scope:** `src/pricing/{dp,blend,round_types,round_conclusion,live_theo}.py` plus a Phase-1-stub `MatchState` dataclass with the **17-field set** locked in D-02 + D-17 + D-18 + D-19 (13 D-02 base + `team_a`/`team_b` from D-17 + `map_side_orients` from D-18 + `map_winners` from D-19). The public pricing surface is delivered as a `LiveTheoEngine` bundle class per D-20 (preserves PRD §6 / DEC-010 / CRule 1 state-only call surface). Property tests for DP value range, symmetric-input closed form, Bradley-Terry symmetry, and theo_series ↔ theo_map[] consistency.
 
 **Out of scope (deferred to other phases):**
 - Live ingestion / OCR / cross-source arbitration → Phase 3
 - Round-conclusion *cell calibration* (skeleton only here, Phase 2 fills cells)
 - Quoting / sizing / kill switches → Phase 4
 - Backtest, paper trading, calibration loop → Phase 5
+- DP-table warm-cache profiling + `models/dp_table.pkl` mmap → Phase 5 only (D-21 resolves D-16; REQ-end-to-end-latency moves to Phase 5)
 
 </domain>
 
@@ -28,7 +29,7 @@ Build the single canonical `live_theo(state) → TheoOutput(theo_series, theo_ma
 
 ### MatchState scope (Phase 1 ↔ Phase 3 seam)
 - **D-01:** Phase 1 ships a **minimal stub `MatchState` dataclass** containing ONLY the fields `live_theo` reads. Phase 3 will *replace* this dataclass with its full ingestion-driven version (REQ-match-state-engine). The Phase 1 / Phase 3 seam absorbs one refactor, not Protocol/structural-typing — concrete dataclass is simpler for `mypy --strict`.
-- **D-02:** Field set for the Phase 1 stub: `match_id, map_pool, map_idx, a_map_score, b_map_score, a_round, b_round, side_orient, pistol_winner_a (per-map dict), numerical_diff, bomb_planted, side, econ_bucket`. **No** `seq_id`, `last_updated_ts`, `players_alive`, `ults`, `time_left_s` — those land in Phase 3. Smallest surface that makes `live_theo` callable end-to-end.
+- **D-02:** Field set for the Phase 1 stub: `match_id, map_pool, map_idx, a_map_score, b_map_score, a_round, b_round, side_orient, pistol_winner_a (per-map dict), numerical_diff, bomb_planted, side, econ_bucket`. **No** `seq_id`, `last_updated_ts`, `players_alive`, `ults`, `time_left_s` — those land in Phase 3. Smallest surface that makes `live_theo` callable end-to-end. **Extended by D-17 / D-18 / D-19 to 17 fields after Phase-1 planning surfaced the gaps.**
 
 ### DP state representation (`BO3State` — DP cache key, separate from MatchState)
 - **D-03:** `BO3State` extends roadmap §1.1's tuple with **only** `pistol_winner_a: Optional[bool]` per map. Deterministic credit-flow econ-bucket modeling is **deferred to Phase 5** (see Deferred Ideas) — the roadmap §1.3 wording "small economy memory" is honored literally.
@@ -65,7 +66,16 @@ Build the single canonical `live_theo(state) → TheoOutput(theo_series, theo_ma
 - **D-15:** Phase 1 ships *property tests* (REQ-unit-and-property-tests subset) for the four invariants in roadmap §1.1, §1.2, §5.1: DP value ∈ [0,1] for any reachable state; symmetric-inputs DP equals `p²(3-2p)` from `fair_value.py`; Bradley-Terry symmetry `round_p(a,b) == 1 − round_p(b,a)`; theo_series consistent with sum over `theo_map[]` outcomes. Phase 5's 80% coverage gate (now correctly scoped to `src/` per the Phase-0 fix WR-03) measures full-codebase coverage; Phase 1 isn't expected to hit 80% on its own.
 
 ### DP cache strategy (roadmap §1.1)
-- **D-16:** Use `@functools.lru_cache(maxsize=None)` for in-process memoization. **Defer** the `models/dp_table.pkl` warm-cache + mmap step to Phase 1 *if and only if* in-process cache hit is fast enough; if profiling shows the cold path is too slow for the < 500 ms latency budget (REQ-end-to-end-latency), the pkl dump lands in Phase 1. Otherwise it's a Phase 5/6 optimization. Decision rule: planner profiles a synthetic match replay end-to-end during Phase 1 and picks one of the two paths.
+- **D-16:** Use `@functools.lru_cache(maxsize=None)` for in-process memoization. **Defer** the `models/dp_table.pkl` warm-cache + mmap step to Phase 1 *if and only if* in-process cache hit is fast enough; if profiling shows the cold path is too slow for the < 500 ms latency budget (REQ-end-to-end-latency), the pkl dump lands in Phase 1. Otherwise it's a Phase 5/6 optimization. Decision rule: planner profiles a synthetic match replay end-to-end during Phase 1 and picks one of the two paths. **Resolved by D-21** — profiling deferred to Phase 5; Phase 1 ships `lru_cache` only.
+
+### MatchState field-set additions (extends D-02 — A4/A5/A6 from RESEARCH.md Assumptions Log)
+- **D-17:** Add `team_a: str, team_b: str` to the Phase 1 stub MatchState. Required for `live_theo` to look up `half_rates.team(team_a, ...)` and `half_rates.team(team_b, ...)`. Without these fields, the only alternative is brittle `match_id` parsing. Extends D-02's 13-field list to 15 fields. Phase 3 retains.
+- **D-18:** Add `map_side_orients: tuple[str, ...]` to MatchState (one starting-side per map in `map_pool`). Required to compute `_advance_to_next_map` correctly across map boundaries — D-02's singular `side_orient` is current-map-only and is insufficient for the DP forward pass at map-boundary transitions. Closes RESEARCH §10 Pitfall 6 (audit-engine `series_theo_no_sides` bug). Extends to 16 fields.
+- **D-19:** Add `map_winners: tuple[Optional[bool], ...]` to MatchState (`True` = team A won that map, `False` = team B won, `None` = not yet decided; `len(map_winners) == len(map_pool)`). Required by `_marginal_map_prob`: `theo_map[i]` for already-played maps must return the indicator value 1.0/0.0 (clipped via CONVICTION_CLIPs), not a series-shaped probability — `BO3State` carries only AGGREGATE `a_map_score`/`b_map_score` and cannot recover historical per-map outcomes. Without this, REQ-theo-map-output is wrong for already-decided maps. Extends to 17 fields. Phase 3 retains.
+- **D-20:** `live_theo` is delivered as a `LiveTheoEngine` BUNDLE class: `engine = LiveTheoEngine(half_rates, round_conclusion); engine(state) -> TheoOutput`. Public re-export surfaces `LiveTheoEngine` (not a free `live_theo`). Justification: DEC-010 / CRule 1 specifies `live_theo(state) -> TheoOutput` (state-only). A free function `live_theo(state, half_rates, round_conclusion)` violates that contract. The engine bundle preserves the state-only call surface and absorbs zero refactor when Phase 4 needs additional dependencies (e.g., MetricsEmitter).
+
+### DP cache strategy (D-16 resolution — A latency-profile decision)
+- **D-21:** Resolve D-16 by DEFERRING the `models/dp_table.pkl` warm-cache step to Phase 5. Phase 1 ships `@functools.lru_cache(maxsize=None)` only — no profiling task in this phase. Reason: Phase 1's between-round `live_theo` invocations are cold-path-rare (once per round-end event); the profiling can be deferred to Phase 5 when `paper-trade` workloads provide realistic latency data. REQ-end-to-end-latency moves to Phase-5-only scope. RESEARCH.md and REQUIREMENTS.md must reflect.
 
 ### Claude's Discretion
 - The Bayesian-shrinkage formula inside `round_conclusion.py` (cell-to-parent shrink weights) is open. Phase 2 will calibrate; Phase 1 just needs *some* defensible formula so the structure is testable. Suggest reusing `SHRINK_PRIOR=15.0` from `src/config/constants.py` consistently.
@@ -83,7 +93,7 @@ Build the single canonical `live_theo(state) → TheoOutput(theo_series, theo_ma
 - `roadmap.md` (root) — §1.1–1.6 implementation guidance for every module landing in Phase 1; §0.4 domain constants
 - `CLAUDE.md` (root) — Critical Rules 1, 3, 5, 6 (single canonical `live_theo`; Bradley-Terry not arithmetic; OT hard-stop; clips `[0.01, 0.99]`); domain constants table
 - `.planning/PROJECT.md` `<decisions>` blocks — DEC-002, DEC-003, DEC-007, DEC-009, DEC-010, DEC-011, DEC-012, DEC-013, DEC-017, DEC-018 are direct Phase 1 inputs
-- `.planning/REQUIREMENTS.md` — REQ-bo3-dp-engine, REQ-bradley-terry-blend, REQ-pistol-anti-eco-modeling, REQ-ot-handling, REQ-round-conclusion-lookup, REQ-canonical-live-theo, REQ-theo-series-output, REQ-theo-map-output, REQ-confidence-output, REQ-vega-output, REQ-end-to-end-latency
+- `.planning/REQUIREMENTS.md` — REQ-bo3-dp-engine, REQ-bradley-terry-blend, REQ-pistol-anti-eco-modeling, REQ-ot-handling, REQ-round-conclusion-lookup, REQ-canonical-live-theo, REQ-theo-series-output, REQ-theo-map-output, REQ-confidence-output, REQ-vega-output (REQ-end-to-end-latency moved to Phase 5 only per D-21)
 - `.planning/intel/constraints.md` — CON-mypy-strict-pricing, CON-no-magic-numbers, CON-single-canonical-live-theo
 
 ### Phase-0 outputs (foundation)
@@ -142,8 +152,8 @@ Build the single canonical `live_theo(state) → TheoOutput(theo_series, theo_ma
 ### Full economy-bucket DP state (deferred to Phase 5 calibration)
 Carry `econ_a, econ_b ∈ {full, semi-buy, semi-eco, eco}` per side as DP state, with deterministic credit-flow transition rules (winners reset to full, losers cascade). Cost: ~16x state expansion, requires modeling credit dynamics inside the DP. Reason for deferral: Phase 1's pistol-only modeling captures most of the accuracy gain (DEC-011 "single largest accuracy gain" applies primarily to rounds 1, 2, 3, 13, 14, 15); the full bucket model is a Phase 5 calibration enhancement once `match_round_data` from Phase 2 is in hand.
 
-### `models/dp_table.pkl` warm cache + mmap (decision deferred until Phase 1 profiling)
-Roadmap §1.1 mentions ~10MB pkl dump + mmap on load. Per D-16, ship this in Phase 1 *only if* `lru_cache` cold-path latency exceeds the < 500 ms budget. Otherwise it's a Phase 5/6 optimization. Planner profiles end-to-end during Phase 1 to decide.
+### `models/dp_table.pkl` warm cache + mmap (resolved per D-21 — Phase 5 only)
+Roadmap §1.1 mentions ~10MB pkl dump + mmap on load. Per **D-21**, this is now Phase-5-only work; Phase 1 ships `lru_cache` only. REQ-end-to-end-latency moves to Phase 5. No Phase 1 profiling task.
 
 ### Vega refinement (PRD §9 TBD #3 / DEC-018 / Phase 5)
 DEC-018 picks variant (a) for vega initially. PRD §9 lists three defensible alternatives. Revisit after 20+ live matches' worth of observed predictive variance.
@@ -160,3 +170,4 @@ None — no pending todos with `area: pricing` or matching this phase's scope. T
 
 *Phase: 1-core-pricing-engine*
 *Context gathered: 2026-04-27*
+*Revision: 2026-04-27 — added D-17/D-18/D-19/D-20/D-21 per plan-checker auto-revise (Blocker B2)*
