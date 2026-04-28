@@ -19,8 +19,20 @@ import math
 
 import pytest
 
-from src.config.constants import SHRINK_PRIOR
+from src.config.constants import (
+    CONVICTION_CLIP_HIGH,
+    CONVICTION_CLIP_LOW,
+    SHRINK_PRIOR,
+)
 from src.pricing.data import HalfRates, MatchState, TheoOutput
+from src.pricing.dp import BO3State
+from src.pricing.live_theo import (
+    _bo3_state_from_match_state,
+    _clip_conviction,
+    _live_theo_impl,
+    _marginal_map_prob,
+    _RoundPFnImpl,
+)
 
 # --------------------------------------------------------------------------- #
 # 1. Data shapes (Task 1)                                                     #
@@ -271,3 +283,168 @@ def _synthetic_match_state(
         side="atk",
         econ_bucket="full",
     )
+
+
+# --------------------------------------------------------------------------- #
+# 3. _live_theo_impl core (Task 2a)                                           #
+# --------------------------------------------------------------------------- #
+
+
+def test_bo3_state_from_match_state_packs_pistol_dict_into_tuple() -> None:
+    """pistol_winner_a dict -> tuple ordered by map_idx."""
+    state = _synthetic_match_state(pistol_winner_a={0: True, 1: None, 2: False})
+    bo3 = _bo3_state_from_match_state(state)
+    assert bo3.pistol_winner_a == (True, None, False)
+    assert bo3.map_idx == 0
+    assert bo3.map_pool == ("Lotus", "Bind", "Haven")
+
+
+def test_build_round_p_fn_consults_map_side_orients_first_half() -> None:
+    """D-18: closure overrides side_orient with map_side_orients[map_idx] in first half.
+
+    For map 1 (starting side 'a_def'), at total=5 < REGULATION_HALF=12,
+    the effective side is the starting side 'a_def'.
+    """
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(
+        map_idx=1,
+        a_round=3,
+        b_round=2,
+        side_orient="a_atk",  # outdated — closure should override
+        map_side_orients=("a_atk", "a_def", "a_atk"),
+    )
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+    bo3 = BO3State(
+        map_idx=1,
+        a_map_score=0,
+        b_map_score=0,
+        a_round=3,
+        b_round=2,
+        side_orient="a_atk",
+        map_pool=("Lotus", "Bind", "Haven"),
+        pistol_winner_a=(None, None, None),
+    )
+    assert fn._effective_side(bo3) == "a_def"
+
+
+def test_build_round_p_fn_flips_after_round_12() -> None:
+    """D-18 + within-map flip: rounds_played >= REGULATION_HALF flips the side."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(
+        map_idx=1,
+        map_side_orients=("a_atk", "a_def", "a_atk"),
+    )
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+    bo3 = BO3State(
+        map_idx=1,
+        a_map_score=0,
+        b_map_score=0,
+        a_round=12,
+        b_round=2,
+        side_orient="a_def",
+        map_pool=("Lotus", "Bind", "Haven"),
+        pistol_winner_a=(None, None, None),
+    )
+    # Starting 'a_def' flipped at total=14 >= 12 -> 'a_atk'.
+    assert fn._effective_side(bo3) == "a_atk"
+
+
+def test_build_round_p_fn_next_side_orient_for_returns_starting_side() -> None:
+    """next_side_orient_for(m) returns map_side_orients[m] for valid m."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(
+        map_side_orients=("a_atk", "a_def", "a_atk"),
+    )
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+    assert fn.next_side_orient_for(0) == "a_atk"
+    assert fn.next_side_orient_for(1) == "a_def"
+    assert fn.next_side_orient_for(2) == "a_atk"
+
+
+def test_build_round_p_fn_next_side_orient_for_bounds_check() -> None:
+    """For map_idx >= len(map_side_orients), returns 'a_atk' defensively."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(
+        map_side_orients=("a_atk", "a_def", "a_atk"),
+    )
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+    assert fn.next_side_orient_for(3) == "a_atk"
+    assert fn.next_side_orient_for(99) == "a_atk"
+
+
+def test_marginal_map_prob_short_circuits_on_map_winners_a_won() -> None:
+    """D-19: m < map_idx with map_winners[m]=True -> CONVICTION_CLIP_HIGH (0.99)."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(
+        map_idx=1,
+        a_map_score=1,
+        b_map_score=0,
+        map_winners=(True, None, None),
+    )
+    assert _marginal_map_prob(state, 0, hr) == CONVICTION_CLIP_HIGH
+
+
+def test_marginal_map_prob_short_circuits_on_map_winners_b_won() -> None:
+    """D-19: m < map_idx with map_winners[m]=False -> CONVICTION_CLIP_LOW (0.01)."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(
+        map_idx=1,
+        a_map_score=0,
+        b_map_score=1,
+        map_winners=(False, None, None),
+    )
+    assert _marginal_map_prob(state, 0, hr) == CONVICTION_CLIP_LOW
+
+
+def test_marginal_map_prob_for_current_map_uses_dp() -> None:
+    """m == state.map_idx: marginal probability via DP identity."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()
+    val = _marginal_map_prob(state, 0, hr)
+    assert CONVICTION_CLIP_LOW <= val <= CONVICTION_CLIP_HIGH
+
+
+def test_marginal_map_prob_for_future_map_in_clip_range() -> None:
+    """m > state.map_idx: marginal probability via DP forward pass."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()
+    for m in (1, 2):
+        val = _marginal_map_prob(state, m, hr)
+        assert CONVICTION_CLIP_LOW <= val <= CONVICTION_CLIP_HIGH
+
+
+def test_clip_conviction_clips_to_dec_012_band() -> None:
+    """DEC-012: clip to [0.01, 0.99]."""
+    assert _clip_conviction(-0.5) == CONVICTION_CLIP_LOW
+    assert _clip_conviction(0.0) == CONVICTION_CLIP_LOW
+    assert _clip_conviction(0.5) == 0.5
+    assert _clip_conviction(1.0) == CONVICTION_CLIP_HIGH
+    assert _clip_conviction(2.0) == CONVICTION_CLIP_HIGH
+
+
+def test_live_theo_impl_returns_theo_output_with_clipped_series() -> None:
+    """REQ-theo-series-output: theo_series in [CONVICTION_CLIP_LOW, CONVICTION_CLIP_HIGH]."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()
+    out = _live_theo_impl(state, hr)
+    assert isinstance(out, TheoOutput)
+    assert CONVICTION_CLIP_LOW <= out.theo_series <= CONVICTION_CLIP_HIGH
+
+
+def test_live_theo_impl_theo_map_length_matches_map_pool() -> None:
+    """REQ-theo-map-output: len(theo_map) == len(map_pool)."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()
+    out = _live_theo_impl(state, hr)
+    assert len(out.theo_map) == len(state.map_pool) == 3
+
+
+def test_live_theo_impl_theo_map_values_in_clip_range() -> None:
+    """REQ-theo-map-output: each theo_map[i] in [CONVICTION_CLIP_LOW, CONVICTION_CLIP_HIGH]."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()
+    out = _live_theo_impl(state, hr)
+    for p in out.theo_map:
+        assert CONVICTION_CLIP_LOW <= p <= CONVICTION_CLIP_HIGH
+
+
