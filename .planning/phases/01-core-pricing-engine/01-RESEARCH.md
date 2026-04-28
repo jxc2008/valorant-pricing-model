@@ -1028,27 +1028,31 @@ If this table is empty: All claims in this research were verified or cited — n
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Side orientation across map boundaries.**
    - What we know: Within a map, sides flip at round 13 (atk → def, or vice versa). Across maps, starting side is decided by veto, not deterministic.
    - What's unclear: Does the Phase 1 stub `MatchState` carry per-map starting sides? D-02 lists `side_orient` (singular, current map). Pitfall 6 raises this.
    - Recommendation: Plan 01-XX adds `map_side_orients: tuple[str, ...]` to MatchState (per A5 in Assumptions Log). Phase 3's full MatchState will retain this field.
+   - **RESOLVED:** Adopted A5 / D-18. `map_side_orients` added to MatchState in Phase 1.
 
 2. **`half_win_rates.json` access pattern.**
    - What we know: File schema is `{team_map_side, league_map_side, overall_avg, ...}`; loaded once via `json.load`.
    - What's unclear: Is `half_rates` instantiated once (module-level singleton) or passed into `live_theo` each call? If singleton, what's the test-isolation strategy?
    - Recommendation: `HalfRates` dataclass with explicit `from_json(path)` classmethod; instantiated by the caller (Phase 4 quoter) and passed into `live_theo`. Tests construct synthetic `HalfRates`. Avoids global state.
+   - **RESOLVED:** Adopted A2 / planner ships `HalfRates` dataclass with `from_json(path)` classmethod; instantiated by caller (Phase 4) and passed into `LiveTheoEngine` constructor (D-20). Tests construct synthetic HalfRates.
 
 3. **Pistol-round-1 input source for Phase 1.**
    - What we know: DEC-011 / roadmap §1.3 says rounds 1, 13 should use `match_round_data` filtered to pistol rounds. `match_round_data` is Phase 2's deliverable, not Phase 1.
    - What's unclear: What probability does Phase 1 emit for round 1? Options: (a) regular half_win_rate via `blend.round_p`, (b) flat 0.5, (c) `GUN_WIN_RATE`-like assumption.
    - Recommendation: Option (a) — use the standard half_win_rate blend for round 1 in Phase 1, with a `# TODO Phase 2: replace with pistol-only rate` comment. Phase 2's calibration will swap in the per-team pistol rate without changing the call shape.
+   - **RESOLVED:** Adopted option (a) / A8 — Phase 1 uses standard `blend.round_p(team_pistol_rate, opp_pistol_rate)` for round 1; `# TODO Phase 2: replace with calibrated pistol-only rate` comment in round_types.py. Phase 2 calibration swaps in per-team pistol rate without changing call shape.
 
 4. **`econ_bucket` source in Phase 1.**
    - What we know: D-02 lists `econ_bucket` as a `MatchState` field; CON-economy-buckets defines the four labels {full, semi-buy, semi-eco, eco}.
    - What's unclear: How does Phase 1 derive `econ_bucket` if Phase 3 hasn't built ingestion? Does Phase 1 just accept whatever the test fixture provides?
    - Recommendation: Phase 1 treats `econ_bucket` as opaque input (whatever the caller provides). It only flows into `round_conclusion.lookup`, which returns 0.5 in Phase 1 anyway. **No Phase 1 logic depends on the bucket value** — it's purely a Phase 2-onwards consumer. Test fixtures can use `'full'` everywhere.
+   - **RESOLVED:** Phase 1 treats `econ_bucket` as opaque input from caller. Only consumer is `round_conclusion.lookup` which returns 0.5 in Phase 1. No Phase 1 logic depends on the bucket value. Test fixtures use `'full'`.
 
 ---
 
