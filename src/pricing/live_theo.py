@@ -28,12 +28,14 @@ Sources
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass, replace
 from typing import Optional
 
 from src.config.constants import (
     CONVICTION_CLIP_HIGH,
     CONVICTION_CLIP_LOW,
+    MIN_ROUNDS_FULL_WEIGHT,
     REGULATION_HALF,
     WIN_THRESHOLD,
 )
@@ -41,6 +43,7 @@ from src.pricing.data import HalfRates, MatchState, TheoOutput
 from src.pricing.dp import (
     BO3State,
     RoundPFn,
+    _advance_round,
     _advance_to_next_map,
     series_value,
 )
@@ -329,14 +332,245 @@ def _live_theo_impl(
     )
 
 
-# Stubs filled in Task 2b — keep signatures stable so Task 2a tests pass.
-def _compute_vega(root: BO3State, round_p_fn: RoundPFn) -> float:
-    """Stub: Task 2b implements DEC-018 form. Returns 0.0 here so Task 2a tests pass."""
-    _ = (root, round_p_fn)
-    return 0.0
+# --------------------------------------------------------------------------- #
+# 5b. _data_weight_for_map (verbatim salvage from reference/theo_engine.py)    #
+# --------------------------------------------------------------------------- #
+
+
+def _data_weight_for_map(
+    team_a: str,
+    team_b: str,
+    map_name: str,
+    half_rates: HalfRates,
+) -> float:
+    """Audit-engine min-over-teams data weight per D-09.
+
+    Source: reference/theo_engine.py:104-129 — salvage verbatim, retyped for
+    mypy strict. Used in confidence aggregation to weight maps by how much
+    empirical data backs the per-team rates on that map.
+    """
+    team_weights: list[float] = []
+    for team in (team_a, team_b):
+        team_total = 0.0
+        team_count = 0
+        for side in ("atk", "def"):
+            entry = half_rates.team_entry(team, map_name, side)
+            if entry and not entry.get("used_fallback", False):
+                team_total += float(entry.get("total", 0))
+                team_count += 1
+        if team_count == 0:
+            return 0.0
+        team_weights.append(team_total / team_count)
+    # Min-over-teams normalized by MIN_ROUNDS_FULL_WEIGHT (D-09 / Acceptance lock).
+    return min(1.0, min(team_weights) / MIN_ROUNDS_FULL_WEIGHT)
+
+
+# --------------------------------------------------------------------------- #
+# 6. _p_map_decisive — TRUE DP-mass forward pass per W3                       #
+# --------------------------------------------------------------------------- #
+
+
+def _p_map_decisive(
+    state: MatchState,
+    m: int,
+    half_rates: HalfRates,
+) -> float:
+    """P(map m is the map that closes the series | current state).
+
+    Three cases (per W3 / RESEARCH §7):
+
+    For m < state.map_idx:
+        Indicator: 1.0 if map m clinched the series in the historical record
+        (one team reached 2 wins exactly at map m), else 0.0. Derivable from
+        state.map_winners[0..state.map_idx-1].
+
+    For m == state.map_idx:
+        P(current map is decisive) =
+            P(A wins map m) * (1 if a_map_score+1 == 2 else 0) +
+            (1 - P(A wins map m)) * (1 if b_map_score+1 == 2 else 0).
+
+    For m > state.map_idx:
+        P(reach map m AND map m is decisive). For BO3, this requires no team
+        clinches on maps state.map_idx..m-1 AND map m itself clinches. We
+        compute P_reached via the forward-pass DP, and for the BO3 last map
+        decisiveness given reached is 1.0.
+    """
+    # Case 1: already-played map.
+    if m < state.map_idx:
+        a_through_m = sum(1 for w in state.map_winners[: m + 1] if w is True)
+        b_through_m = sum(1 for w in state.map_winners[: m + 1] if w is False)
+        a_before = a_through_m - (1 if state.map_winners[m] is True else 0)
+        b_before = b_through_m - (1 if state.map_winners[m] is False else 0)
+        # Map m was decisive if the score after map m hit 2 for either team
+        # AND the score before map m was at most 1 for both.
+        if (a_through_m == 2 and a_before == 1) or (
+            b_through_m == 2 and b_before == 1
+        ):
+            return 1.0
+        return 0.0
+
+    # Case 2: current map.
+    if m == state.map_idx:
+        p_a_wins = _marginal_map_prob(state, m, half_rates)
+        a_decisive = 1.0 if state.a_map_score + 1 == 2 else 0.0
+        b_decisive = 1.0 if state.b_map_score + 1 == 2 else 0.0
+        return p_a_wins * a_decisive + (1.0 - p_a_wins) * b_decisive
+
+    # Case 3: future map. P(reached) × P(decisive | reached).
+    bo3 = _bo3_state_from_match_state(state)
+    fn = _RoundPFnImpl(match_state=state, half_rates=half_rates)
+
+    p_reached = _p_reach_map(bo3, fn, m)
+    if m == len(state.map_pool) - 1:
+        # Last map of the BO3 — always decisive once reached.
+        return p_reached
+    # Non-last future map (BO5+ extension). Phase 1 BO3: unreachable branch.
+    return p_reached * 0.5
+
+
+# Registry indirection for lru_cache — RoundPFn closures aren't reliably
+# hashable (MatchState carries a dict). Mirrors dp.py's _ROUND_P_FNS pattern.
+_REACH_MAP_FNS: list[RoundPFn] = []
+
+
+def _register_reach_map_fn(fn: RoundPFn) -> int:
+    _REACH_MAP_FNS.append(fn)
+    return len(_REACH_MAP_FNS) - 1
+
+
+def _p_reach_map(
+    state: BO3State,
+    round_p_fn: RoundPFn,
+    m: int,
+) -> float:
+    """P(reach map m starting from ``state`` under round_p_fn).
+
+    Indirection wrapper: registers the closure with int-keyed registry so
+    the cached helper can hash on (BO3State, int, int).
+    """
+    fn_id = _register_reach_map_fn(round_p_fn)
+    return _p_reach_map_cached(state, fn_id, m)
+
+
+@functools.lru_cache(maxsize=None)  # noqa: UP033 — plan acceptance grep requires lru_cache(maxsize=None)
+def _p_reach_map_cached(
+    state: BO3State,
+    round_p_fn_id: int,
+    m: int,
+) -> float:
+    """Memoized P(reach map m starting from ``state``).
+
+    Recursive on BO3State.map_idx:
+      - state.map_idx == m: return 1.0 (reached)
+      - a_map_score >= 2 or b_map_score >= 2: return 0.0 (clinched before m)
+      - else: recurse on (state_after_a_wins_current, state_after_b_wins_current)
+        weighted by the within-map P(A wins).
+    """
+    if state.map_idx == m:
+        return 1.0
+    if state.a_map_score >= 2 or state.b_map_score >= 2:
+        return 0.0
+    if state.map_idx > m:
+        return 0.0  # Past target without reaching — defensive.
+
+    fn = _REACH_MAP_FNS[round_p_fn_id]
+    next_side = fn.next_side_orient_for(state.map_idx + 1)
+    state_after_a = _advance_to_next_map(state, a_won=True, next_side_orient=next_side)
+    state_after_b = _advance_to_next_map(state, a_won=False, next_side_orient=next_side)
+    v_after_a = series_value(state_after_a, fn)
+    v_after_b = series_value(state_after_b, fn)
+    v_root = series_value(state, fn)
+    denom = v_after_a - v_after_b
+    p_a = (
+        0.5
+        if abs(denom) < 1e-12
+        else max(0.0, min(1.0, (v_root - v_after_b) / denom))
+    )
+
+    return p_a * _p_reach_map_cached(state_after_a, round_p_fn_id, m) + (
+        1.0 - p_a
+    ) * _p_reach_map_cached(state_after_b, round_p_fn_id, m)
+
+
+# --------------------------------------------------------------------------- #
+# 7. _compute_confidence (DP-mass-weighted per D-08 — replaces Task 2a stub)  #
+# --------------------------------------------------------------------------- #
 
 
 def _compute_confidence(state: MatchState, half_rates: HalfRates) -> float:
-    """Stub: Task 2b implements TRUE DP-mass-weighted formula per D-08 / W3."""
-    _ = (state, half_rates)
-    return 0.0
+    """confidence = sum_m (data_w(m) × P(map m decisive | state)) / sum_m P(...).
+
+    Per D-08: weight each map's _data_weight by the probability that map is
+    the one closing the series. Maps the series is unlikely to reach
+    contribute less. State-dependent — confidence changes round-to-round
+    even with no new data. Phase 4 kill-switch logic must accept that.
+
+    Returns 0.0 if denominator is < 1e-12 (defensive: series effectively
+    decided already; no map is "decisive" because terminals fired).
+    """
+    weighted_sum = 0.0
+    mass_sum = 0.0
+    for m in range(len(state.map_pool)):
+        map_name = state.map_pool[m]
+        data_w = _data_weight_for_map(state.team_a, state.team_b, map_name, half_rates)
+        p_decisive = _p_map_decisive(state, m, half_rates)
+        weighted_sum += data_w * p_decisive
+        mass_sum += p_decisive
+
+    if mass_sum < 1e-12:
+        return 0.0
+    return max(0.0, min(1.0, weighted_sum / mass_sum))
+
+
+# --------------------------------------------------------------------------- #
+# 8. _compute_vega (DEC-018 — replaces Task 2a stub)                          #
+# --------------------------------------------------------------------------- #
+
+
+def _compute_vega(root: BO3State, round_p_fn: RoundPFn) -> float:
+    """vega = round_p × (theo_a − theo)² + (1 − round_p) × (theo_b − theo)².
+
+    Per DEC-018 / D-10 / D-11. Computed at every live_theo invocation
+    (D-11 — Phase 1 doesn't gate to round boundaries). Uses two extra
+    series_value lookups (state_a_wins, state_b_wins) plus the root value.
+
+    Always >= 0 by construction (sum of squared deviations weighted by probs).
+    """
+    state_a_wins = _advance_round(root, a_wins=True)
+    state_b_wins = _advance_round(root, a_wins=False)
+    theo = series_value(root, round_p_fn)
+    theo_a = series_value(state_a_wins, round_p_fn)
+    theo_b = series_value(state_b_wins, round_p_fn)
+    p = round_p_fn(root)
+    return p * (theo_a - theo) ** 2 + (1.0 - p) * (theo_b - theo) ** 2
+
+
+# --------------------------------------------------------------------------- #
+# 9. LiveTheoEngine bundle (D-20)                                             #
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class LiveTheoEngine:
+    """Single canonical pricing entry point — bundle pattern per D-20.
+
+    Preserves PRD §6 / DEC-010 / CRule 1's state-only call surface:
+        engine = LiveTheoEngine(half_rates)
+        engine(state) -> TheoOutput
+
+    Phase 4 instantiates once per match. When Phase 4 needs additional
+    dependencies (e.g., MetricsEmitter), they're added as constructor
+    arguments without changing the per-call __call__ signature.
+
+    Usage:
+        from src.pricing import LiveTheoEngine, HalfRates
+        half_rates = HalfRates.from_json("data/half_win_rates.json")
+        engine = LiveTheoEngine(half_rates)
+        out = engine(state)  # state: MatchState
+    """
+
+    half_rates: HalfRates
+    round_conclusion: Optional[RoundConclusionFn] = None  # noqa: UP045 — Optional retained
+
+    def __call__(self, state: MatchState) -> TheoOutput:
+        return _live_theo_impl(state, self.half_rates, self.round_conclusion)

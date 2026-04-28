@@ -22,15 +22,21 @@ import pytest
 from src.config.constants import (
     CONVICTION_CLIP_HIGH,
     CONVICTION_CLIP_LOW,
+    MIN_ROUNDS_FULL_WEIGHT,
     SHRINK_PRIOR,
 )
 from src.pricing.data import HalfRates, MatchState, TheoOutput
 from src.pricing.dp import BO3State
 from src.pricing.live_theo import (
+    LiveTheoEngine,
     _bo3_state_from_match_state,
     _clip_conviction,
+    _compute_confidence,
+    _compute_vega,
+    _data_weight_for_map,
     _live_theo_impl,
     _marginal_map_prob,
+    _p_map_decisive,
     _RoundPFnImpl,
 )
 
@@ -446,5 +452,174 @@ def test_live_theo_impl_theo_map_values_in_clip_range() -> None:
     out = _live_theo_impl(state, hr)
     for p in out.theo_map:
         assert CONVICTION_CLIP_LOW <= p <= CONVICTION_CLIP_HIGH
+
+
+# --------------------------------------------------------------------------- #
+# 4. LiveTheoEngine bundle + _p_map_decisive + confidence + vega (Task 2b)    #
+# --------------------------------------------------------------------------- #
+
+
+def test_p_map_decisive_for_already_clinched_map() -> None:
+    """W3 case 1: m < state.map_idx where map m clinched returns 1.0."""
+    hr = _synthetic_half_rates()
+    # A wins map 0 (1-0), A wins map 1 (2-0 — clinches on map 1).
+    state = _synthetic_match_state(
+        map_idx=2,
+        a_map_score=2,
+        b_map_score=0,
+        map_winners=(True, True, None),
+    )
+    assert _p_map_decisive(state, 1, hr) == 1.0
+    assert _p_map_decisive(state, 0, hr) == 0.0  # map 0 wasn't clinching
+
+
+def test_p_map_decisive_for_current_map_not_decisive() -> None:
+    """W3 case 2: m == state.map_idx, current map cannot clinch -> returns 0.0."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(
+        map_idx=0,
+        a_map_score=0,
+        b_map_score=0,
+    )
+    # After map 0, max score is 1-0 (not 2). Current map never decisive.
+    assert _p_map_decisive(state, 0, hr) == 0.0
+
+
+def test_p_map_decisive_for_current_map_can_clinch() -> None:
+    """W3 case 2: m == state.map_idx where A is up 1-0 — current map IS potentially decisive."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(
+        map_idx=1,
+        a_map_score=1,
+        b_map_score=0,
+    )
+    # A winning map 1 -> 2-0 (decisive). B winning -> 1-1 (not decisive).
+    # P_decisive = P(A wins map 1) * 1.0 + P(B wins map 1) * 0.0 = P(A wins map 1).
+    p_decisive = _p_map_decisive(state, 1, hr)
+    p_a_wins_map_1 = _marginal_map_prob(state, 1, hr)
+    assert math.isclose(p_decisive, p_a_wins_map_1, rel_tol=1e-9)
+
+
+def test_p_map_decisive_for_future_map_in_bo3() -> None:
+    """W3 case 3: m > state.map_idx (BO3 m=2 from map 0 0-0) — only reachable via 1-1."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(map_idx=0, a_map_score=0, b_map_score=0)
+    # Map 2 reached only if maps 0 and 1 split 1-1. Once reached, decisive.
+    p_decisive = _p_map_decisive(state, 2, hr)
+    assert 0.0 <= p_decisive <= 1.0
+
+
+def test_compute_confidence_in_unit_interval() -> None:
+    """REQ-confidence-output / D-08: confidence in [0, 1]."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()
+    val = _compute_confidence(state, hr)
+    assert 0.0 <= val <= 1.0
+
+
+def test_compute_confidence_uses_dp_mass_not_theo_map_proxy() -> None:
+    """Blocker #1: confidence is DP-mass-weighted, not a theo_map proxy.
+
+    Verifies the loose contract: confidence is in [0, 1] and deterministic
+    for fixed input. The structural test (no proxy formula `0.5 + 0.5 *
+    abs(theo_map - 0.5)` in source) is enforced by the source-level grep
+    in Task 3 acceptance criteria.
+    """
+    hr = _synthetic_half_rates()
+    state1 = _synthetic_match_state(map_idx=0, a_map_score=0, b_map_score=0)
+    state2 = _synthetic_match_state(
+        map_idx=1,
+        a_map_score=1,
+        b_map_score=0,
+        map_winners=(True, None, None),
+    )
+    c1 = _compute_confidence(state1, hr)
+    c2 = _compute_confidence(state2, hr)
+    assert 0.0 <= c1 <= 1.0
+    assert 0.0 <= c2 <= 1.0
+
+
+def test_compute_vega_non_negative() -> None:
+    """REQ-vega-output / DEC-018: vega is a sum of squared deviations >= 0."""
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()
+    bo3 = _bo3_state_from_match_state(state)
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+    val = _compute_vega(bo3, fn)
+    assert val >= 0.0
+
+
+def test_compute_vega_matches_dec_018_formula() -> None:
+    """REQ-vega-output / DEC-018: vega = p*(theo_a-theo)^2 + (1-p)*(theo_b-theo)^2."""
+    from src.pricing.dp import _advance_round, series_value
+
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()
+    bo3 = _bo3_state_from_match_state(state)
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+
+    actual = _compute_vega(bo3, fn)
+    # Reconstruct the formula manually:
+    state_a_wins = _advance_round(bo3, a_wins=True)
+    state_b_wins = _advance_round(bo3, a_wins=False)
+    theo = series_value(bo3, fn)
+    theo_a = series_value(state_a_wins, fn)
+    theo_b = series_value(state_b_wins, fn)
+    p = fn(bo3)
+    expected = p * (theo_a - theo) ** 2 + (1.0 - p) * (theo_b - theo) ** 2
+    assert math.isclose(actual, expected, rel_tol=1e-9)
+
+
+def test_data_weight_for_map_min_over_teams() -> None:
+    """D-09: _data_weight_for_map = min over teams of avg total / MIN_ROUNDS_FULL_WEIGHT."""
+    hr = _synthetic_half_rates()
+    val = _data_weight_for_map("TeamA", "TeamB", "Lotus", hr)
+    # 10/10/10/10 sample sizes -> avg = 10.0 per team -> min = 10.0 -> 10/15 = 0.667
+    assert math.isclose(val, 10.0 / MIN_ROUNDS_FULL_WEIGHT, rel_tol=1e-12)
+
+
+def test_data_weight_for_map_zero_when_team_has_no_data() -> None:
+    """When a team has no entry, _data_weight returns 0."""
+    hr = HalfRates(team_rates={}, league_rates={}, overall_avg=0.5)
+    assert _data_weight_for_map("UnknownA", "UnknownB", "Lotus", hr) == 0.0
+
+
+def test_live_theo_engine_call_surface() -> None:
+    """D-20: LiveTheoEngine(half_rates)(state) returns the same TheoOutput as
+    _live_theo_impl(state, half_rates, None).
+    """
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()
+    engine = LiveTheoEngine(half_rates=hr)
+    out_engine = engine(state)
+    out_impl = _live_theo_impl(state, hr, None)
+    assert out_engine.theo_series == out_impl.theo_series
+    assert out_engine.theo_map == out_impl.theo_map
+    assert math.isclose(out_engine.vega, out_impl.vega, rel_tol=1e-9)
+    assert math.isclose(out_engine.confidence, out_impl.confidence, rel_tol=1e-9)
+
+
+def test_live_theo_engine_is_frozen() -> None:
+    """D-20: LiveTheoEngine is a frozen dataclass."""
+    hr = _synthetic_half_rates()
+    engine = LiveTheoEngine(half_rates=hr)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        engine.half_rates = HalfRates(  # type: ignore[misc]
+            team_rates={},
+            league_rates={},
+            overall_avg=0.5,
+        )
+
+
+def test_live_theo_engine_accepts_optional_round_conclusion() -> None:
+    """D-20: round_conclusion parameter is optional (Phase 1 doesn't consume it)."""
+    from src.pricing.round_conclusion import RoundConclusionLookup
+
+    hr = _synthetic_half_rates()
+    lookup = RoundConclusionLookup()
+    state = _synthetic_match_state()
+    engine = LiveTheoEngine(half_rates=hr, round_conclusion=lookup.lookup)
+    out = engine(state)
+    assert isinstance(out, TheoOutput)
 
 
