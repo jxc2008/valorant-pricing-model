@@ -275,14 +275,19 @@ def test_source_does_not_contain_arithmetic_mean_blend() -> None:
 def test_source_uses_type_checking_guard_for_circular_imports() -> None:
     """RESEARCH Architectural Map: round_types.py must NOT import live_theo /
     dp at runtime — use TYPE_CHECKING guard.
+
+    NOTE (01-05 Rule 3 deviation): MatchState lives in src/pricing/data.py per
+    D-14. The original 01-03 test hard-coded the live_theo path before D-14
+    landed; updated here to match the canonical placement. dp.py and
+    live_theo.py both import data.py at runtime safely (data.py has zero
+    intra-package deps).
     """
     src = Path("src/pricing/round_types.py").read_text(encoding="utf-8")
     assert "if TYPE_CHECKING:" in src
-    # Both type-only imports must be inside the guard block (or absent at runtime)
-    assert "from src.pricing.live_theo import MatchState" in src
-    # The import statement should appear AFTER `if TYPE_CHECKING:` line:
+    # The MatchState type-only import must be inside the guard block.
+    assert "from src.pricing.data import MatchState" in src
     type_checking_idx = src.find("if TYPE_CHECKING:")
-    matchstate_idx = src.find("from src.pricing.live_theo import MatchState")
+    matchstate_idx = src.find("from src.pricing.data import MatchState")
     assert type_checking_idx < matchstate_idx, (
         "MatchState import must be inside TYPE_CHECKING block"
     )
