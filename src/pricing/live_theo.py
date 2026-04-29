@@ -424,8 +424,16 @@ def _p_map_decisive(
     if m == len(state.map_pool) - 1:
         # Last map of the BO3 — always decisive once reached.
         return p_reached
-    # Non-last future map (BO5+ extension). Phase 1 BO3: unreachable branch.
-    return p_reached * 0.5
+    # Middle future map (BO3: m == state.map_idx + 1, m != len-1). CR-02 fix:
+    # decisive iff the same team wins both the previous map and this one.
+    # P(decisive | reached) = P(prev_winner == m_winner)
+    #                       = p_a_{m-1} * p_a_m + (1 - p_a_{m-1}) * (1 - p_a_m)
+    # Reuses _marginal_map_prob so the same canonical DP backs both terms
+    # (CRule 1 / DEC-002 / DEC-010 — no parallel math).
+    p_a_wins_m_minus_1 = _marginal_map_prob(state, m - 1, half_rates)
+    p_a_wins_m = _marginal_map_prob(state, m, half_rates)
+    p_decisive_given_reached = p_a_wins_m_minus_1 * p_a_wins_m + (1.0 - p_a_wins_m_minus_1) * (1.0 - p_a_wins_m)  # noqa: E501 — plan acceptance grep requires single-line BO3 decisive formula
+    return p_reached * p_decisive_given_reached
 
 
 # Registry indirection for lru_cache — RoundPFn closures aren't reliably
@@ -436,6 +444,17 @@ _REACH_MAP_FNS: list[RoundPFn] = []
 def _register_reach_map_fn(fn: RoundPFn) -> int:
     _REACH_MAP_FNS.append(fn)
     return len(_REACH_MAP_FNS) - 1
+
+
+def _clear_pricing_caches() -> None:
+    """Reset the closure registry and lru_cache for one-shot pricing calls.
+
+    CR-04 fix companion (VERIFICATION.md gaps[3]). Same rationale as
+    ``dp._clear_pricing_caches``: ``_REACH_MAP_FNS`` is append-only and the
+    cache key includes the int id so cross-call cache hits are already 0%.
+    """
+    _REACH_MAP_FNS.clear()
+    _p_reach_map_cached.cache_clear()
 
 
 def _p_reach_map(
@@ -460,16 +479,23 @@ def _p_reach_map_cached(
 ) -> float:
     """Memoized P(reach map m starting from ``state``).
 
+    Terminal-check order (CR-01 fix — VERIFICATION.md gaps[0]): the series-clinch
+    short-circuit MUST fire BEFORE the ``state.map_idx == m`` check. Otherwise an
+    unreachable post-clinch recursion path that lands at ``map_idx == m`` returns
+    1.0 (treated as "reached") instead of 0.0 (the series never plays subsequent
+    maps once a team hits 2 wins).
+
     Recursive on BO3State.map_idx:
+      - a_map_score >= 2 or b_map_score >= 2: return 0.0 (clinched, never reach m)
       - state.map_idx == m: return 1.0 (reached)
-      - a_map_score >= 2 or b_map_score >= 2: return 0.0 (clinched before m)
+      - state.map_idx > m: return 0.0 (past target without reaching — defensive)
       - else: recurse on (state_after_a_wins_current, state_after_b_wins_current)
         weighted by the within-map P(A wins).
     """
-    if state.map_idx == m:
-        return 1.0
     if state.a_map_score >= 2 or state.b_map_score >= 2:
         return 0.0
+    if state.map_idx == m:
+        return 1.0
     if state.map_idx > m:
         return 0.0  # Past target without reaching — defensive.
 
@@ -535,7 +561,40 @@ def _compute_vega(root: BO3State, round_p_fn: RoundPFn) -> float:
     series_value lookups (state_a_wins, state_b_wins) plus the root value.
 
     Always >= 0 by construction (sum of squared deviations weighted by probs).
+
+    Terminal short-circuits (CR-03 fix — VERIFICATION.md gaps[2], CRule 5):
+
+      - Series terminal (a_map_score >= 2 or b_map_score >= 2): theo is the
+        constant 1.0 or 0.0; vega is 0.
+      - Within-map terminal (a_round or b_round >= WIN_THRESHOLD): the map is
+        decided; per-round vega is 0 (the next "round" doesn't exist within
+        this map).
+      - OT entry (a_round + b_round >= REGULATION_HALF * 2): _advance_round
+        would push past the DP's OT hard-stop at total=24 (DEC-009 / CRule 5),
+        silently bypassing _ot_coinflip_leaf. Instead, vega here is the
+        VARIANCE of the OT coinflip leaf over next-map series outcomes —
+        consistent with the DP's own OT semantics.
     """
+    # Series terminal: theo is constant, vega is 0.
+    if root.a_map_score >= 2 or root.b_map_score >= 2:
+        return 0.0
+    # Within-map terminal: map is decided, no per-round vega.
+    if root.a_round >= WIN_THRESHOLD or root.b_round >= WIN_THRESHOLD:
+        return 0.0
+    # OT coinflip leaf: vega is variance of the leaf, not of _advance_round.
+    if root.a_round + root.b_round >= REGULATION_HALF * 2:
+        next_side = round_p_fn.next_side_orient_for(root.map_idx + 1)
+        v_a = series_value(
+            _advance_to_next_map(root, a_won=True, next_side_orient=next_side),
+            round_p_fn,
+        )
+        v_b = series_value(
+            _advance_to_next_map(root, a_won=False, next_side_orient=next_side),
+            round_p_fn,
+        )
+        mean = 0.5 * (v_a + v_b)
+        return 0.5 * (v_a - mean) ** 2 + 0.5 * (v_b - mean) ** 2
+    # Standard regulation case (existing body):
     state_a_wins = _advance_round(root, a_wins=True)
     state_b_wins = _advance_round(root, a_wins=False)
     theo = series_value(root, round_p_fn)
@@ -573,4 +632,15 @@ class LiveTheoEngine:
     round_conclusion: Optional[RoundConclusionFn] = None  # noqa: UP045 — Optional retained
 
     def __call__(self, state: MatchState) -> TheoOutput:
-        return _live_theo_impl(state, self.half_rates, self.round_conclusion)
+        # CR-04: bound memory by clearing the per-call closure registries +
+        # lru_caches at the END of every call, even on exception. The
+        # cross-call cache hit rate is already 0% (each call registers a new
+        # closure id; lru_cache keys on (state, int) so old ids are dead
+        # weight). Phase 4's continuous quoter REQUIRES this — see 01-REVIEW.md
+        # CR-04 and 01-VERIFICATION.md gaps[3]. Do NOT remove this finally.
+        from src.pricing import dp as _dp
+        try:
+            return _live_theo_impl(state, self.half_rates, self.round_conclusion)
+        finally:
+            _clear_pricing_caches()
+            _dp._clear_pricing_caches()

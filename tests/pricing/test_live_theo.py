@@ -39,6 +39,7 @@ from src.pricing.live_theo import (
     _live_theo_impl,
     _marginal_map_prob,
     _p_map_decisive,
+    _p_reach_map,
     _RoundPFnImpl,
 )
 
@@ -511,6 +512,88 @@ def test_p_map_decisive_for_future_map_in_bo3() -> None:
     assert 0.0 <= p_decisive <= 1.0
 
 
+def test_p_reach_map_zero_for_clinched_series_state() -> None:
+    """CR-01 (VERIFICATION.md gaps[0]): a 2-0 BO3 cannot reach map 2 even
+    though ``map_idx == m == 2`` — the series-clinch short-circuit must fire
+    BEFORE the map_idx terminal check.
+    """
+    bo3 = BO3State(
+        map_idx=2,
+        a_map_score=2,
+        b_map_score=0,
+        a_round=0,
+        b_round=0,
+        side_orient="a_atk",
+        map_pool=("Lotus", "Bind", "Haven"),
+        pistol_winner_a=(True, True, None),
+    )
+    state = _synthetic_match_state(map_idx=2, a_map_score=2, b_map_score=0)
+    fn = _RoundPFnImpl(match_state=state, half_rates=_synthetic_half_rates())
+    assert _p_reach_map(bo3, fn, m=2) == 0.0
+
+
+def test_p_reach_map_zero_for_b_clinched_series_state() -> None:
+    """CR-01 mirror: 0-2 BO3 also cannot reach map 2."""
+    bo3 = BO3State(
+        map_idx=2,
+        a_map_score=0,
+        b_map_score=2,
+        a_round=0,
+        b_round=0,
+        side_orient="a_atk",
+        map_pool=("Lotus", "Bind", "Haven"),
+        pistol_winner_a=(False, False, None),
+    )
+    state = _synthetic_match_state(map_idx=2, a_map_score=0, b_map_score=2)
+    fn = _RoundPFnImpl(match_state=state, half_rates=_synthetic_half_rates())
+    assert _p_reach_map(bo3, fn, m=2) == 0.0
+
+
+def test_p_map_decisive_for_bo3_middle_map_with_nontrivial_p() -> None:
+    """CR-02 (VERIFICATION.md gaps[1]): from map_idx=0, m=1 (BO3 middle map)
+    must use the correct BO3 decisive formula
+        p_reached * (p_a_{m-1} * p_a_m + (1 - p_a_{m-1}) * (1 - p_a_m))
+    and NOT the BO5+ placeholder ``p_reached * 0.5``. With asymmetric half-rates
+    (Team A ~0.6, Team B ~0.4 per _synthetic_half_rates), the correct value
+    differs from the placeholder by at least 1e-3.
+    """
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(map_idx=0)
+    bo3 = _bo3_state_from_match_state(state)
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+
+    actual = _p_map_decisive(state, m=1, half_rates=hr)
+    p_reached = _p_reach_map(bo3, fn, m=1)
+    p_a_0 = _marginal_map_prob(state, 0, hr)
+    p_a_1 = _marginal_map_prob(state, 1, hr)
+    expected = p_reached * (p_a_0 * p_a_1 + (1.0 - p_a_0) * (1.0 - p_a_1))
+    assert math.isclose(actual, expected, rel_tol=1e-9)
+
+    # Witness that the placeholder bug is closed: the placeholder value
+    # ``p_reached * 0.5`` differs from the correct value by > 1e-3 here.
+    placeholder = p_reached * 0.5
+    assert abs(actual - placeholder) > 1e-3, (
+        f"middle-map decisive {actual!r} should differ from BO5+ placeholder "
+        f"{placeholder!r} under asymmetric half-rates"
+    )
+
+
+def test_p_map_decisive_sum_equals_one_pre_clinch() -> None:
+    """CR-01 ∩ CR-02 conjunction (REVIEW.md IN-04 / law of total probability):
+    sum of _p_map_decisive over all map indices must equal 1.0 for any
+    pre-clinch state. Locks both fixes structurally — over-counting clinched
+    paths (CR-01) or using the BO5+ placeholder (CR-02) breaks this identity.
+    """
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()  # 0-0 root, pre-clinch
+    total = sum(
+        _p_map_decisive(state, m, hr) for m in range(len(state.map_pool))
+    )
+    assert math.isclose(total, 1.0, rel_tol=1e-9), (
+        f"law of total probability violated: sum of decisive masses = {total!r}"
+    )
+
+
 def test_compute_confidence_in_unit_interval() -> None:
     """REQ-confidence-output / D-08: confidence in [0, 1]."""
     hr = _synthetic_half_rates()
@@ -572,6 +655,101 @@ def test_compute_vega_matches_dec_018_formula() -> None:
     assert math.isclose(actual, expected, rel_tol=1e-9)
 
 
+def test_compute_vega_zero_at_series_terminal() -> None:
+    """CR-03 (VERIFICATION.md gaps[2]): vega is 0 when the series is clinched.
+    Theo is the constant 1.0 (or 0.0) so squared deviation is 0.
+    """
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(map_idx=2, a_map_score=2)
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+    bo3_a = _bo3_state_from_match_state(state)
+    assert _compute_vega(bo3_a, fn) == 0.0
+
+    state_b = _synthetic_match_state(map_idx=2, a_map_score=0, b_map_score=2)
+    fn_b = _RoundPFnImpl(match_state=state_b, half_rates=hr)
+    bo3_b = _bo3_state_from_match_state(state_b)
+    assert _compute_vega(bo3_b, fn_b) == 0.0
+
+
+def test_compute_vega_zero_at_within_map_terminal() -> None:
+    """CR-03: vega is 0 when the current map is already decided
+    (a_round or b_round >= WIN_THRESHOLD). Per-round vega is undefined inside
+    a finished map.
+    """
+    hr = _synthetic_half_rates()
+    state_a = _synthetic_match_state(a_round=13, b_round=10)
+    fn_a = _RoundPFnImpl(match_state=state_a, half_rates=hr)
+    bo3_a = _bo3_state_from_match_state(state_a)
+    assert _compute_vega(bo3_a, fn_a) == 0.0
+
+    state_b = _synthetic_match_state(a_round=10, b_round=13)
+    fn_b = _RoundPFnImpl(match_state=state_b, half_rates=hr)
+    bo3_b = _bo3_state_from_match_state(state_b)
+    assert _compute_vega(bo3_b, fn_b) == 0.0
+
+
+def test_compute_vega_at_ot_entry_uses_coinflip_leaf() -> None:
+    """CR-03 (VERIFICATION.md gaps[2], CRule 5): at a_round=12, b_round=12
+    (regulation OT entry, total=24), vega MUST equal the variance of the
+    OT coinflip leaf over next-map series outcomes — not the squared
+    deviation against _advance_round-projected next-map values (which
+    silently bypass the DP's OT hard-stop).
+    """
+    from src.pricing.dp import series_value
+
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(a_round=12, b_round=12)
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+    root = _bo3_state_from_match_state(state)
+
+    actual = _compute_vega(root, fn)
+
+    # Reconstruct expected: variance of the OT coinflip leaf.
+    next_side = fn.next_side_orient_for(root.map_idx + 1)
+    v_a = series_value(
+        _advance_to_next_map(root, a_won=True, next_side_orient=next_side),
+        fn,
+    )
+    v_b = series_value(
+        _advance_to_next_map(root, a_won=False, next_side_orient=next_side),
+        fn,
+    )
+    mean = 0.5 * (v_a + v_b)
+    expected = 0.5 * (v_a - mean) ** 2 + 0.5 * (v_b - mean) ** 2
+    assert math.isclose(actual, expected, rel_tol=1e-9, abs_tol=1e-12)
+    assert actual >= 0.0
+
+
+def test_compute_vega_at_ot_entry_with_asymmetric_clinch_state() -> None:
+    """CR-03 (asymmetric witness): at a_round=12, b_round=12 with a_map_score=1
+    (A is one map up so OT-coinflip-A clinches the series, OT-coinflip-B
+    forces map 3), v_a and v_b differ. The OT-leaf variance is then
+    strictly positive AND differs from the buggy _advance_round projection.
+    """
+    from src.pricing.dp import series_value
+
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(map_idx=1, a_map_score=1, a_round=12, b_round=12)
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+    root = _bo3_state_from_match_state(state)
+
+    actual = _compute_vega(root, fn)
+
+    next_side = fn.next_side_orient_for(root.map_idx + 1)
+    v_a = series_value(
+        _advance_to_next_map(root, a_won=True, next_side_orient=next_side),
+        fn,
+    )
+    v_b = series_value(
+        _advance_to_next_map(root, a_won=False, next_side_orient=next_side),
+        fn,
+    )
+    mean = 0.5 * (v_a + v_b)
+    expected = 0.5 * (v_a - mean) ** 2 + 0.5 * (v_b - mean) ** 2
+    assert math.isclose(actual, expected, rel_tol=1e-9, abs_tol=1e-12)
+    assert actual >= 0.0
+
+
 def test_data_weight_for_map_min_over_teams() -> None:
     """D-09: _data_weight_for_map = min over teams of avg total / MIN_ROUNDS_FULL_WEIGHT."""
     hr = _synthetic_half_rates()
@@ -599,6 +777,75 @@ def test_live_theo_engine_call_surface() -> None:
     assert out_engine.theo_map == out_impl.theo_map
     assert math.isclose(out_engine.vega, out_impl.vega, rel_tol=1e-9)
     assert math.isclose(out_engine.confidence, out_impl.confidence, rel_tol=1e-9)
+
+
+def test_no_memory_leak_across_live_theo_calls() -> None:
+    """CR-04 (VERIFICATION.md gaps[3]): the closure registries and lru_caches
+    must be reset per-call so Phase 4's continuous-running quoter does not
+    leak memory linearly. After 100 sequential engine(state) calls, both
+    registries must be near-empty (cleared in __call__'s finally block).
+    """
+    from src.pricing import dp
+    from src.pricing import live_theo as live_theo_mod
+
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()
+    engine = LiveTheoEngine(half_rates=hr)
+    for _ in range(100):
+        engine(state)
+
+    # try/finally cleanup runs after each call — at the moment we observe,
+    # the registries should be empty (the LAST call cleaned up before
+    # returning). Slack of 5 absorbs any future intra-call asymmetry.
+    assert len(dp._ROUND_P_FNS) <= 5, (
+        f"_ROUND_P_FNS leaked: len={len(dp._ROUND_P_FNS)} after 100 calls"
+    )
+    assert len(live_theo_mod._REACH_MAP_FNS) <= 5, (
+        f"_REACH_MAP_FNS leaked: len={len(live_theo_mod._REACH_MAP_FNS)} "
+        f"after 100 calls"
+    )
+
+
+def test_live_theo_engine_clears_caches_even_on_exception() -> None:
+    """CR-04 corollary: cleanup runs in finally so a raising _live_theo_impl
+    still leaves the registries clean.
+    """
+    import unittest.mock
+
+    from src.pricing import dp
+    from src.pricing import live_theo as live_theo_mod
+
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()
+    engine = LiveTheoEngine(half_rates=hr)
+
+    # Prime the registries with one good call.
+    engine(state)
+    baseline_dp = len(dp._ROUND_P_FNS)
+    baseline_reach = len(live_theo_mod._REACH_MAP_FNS)
+
+    # Now force _live_theo_impl to raise; the finally MUST still run cleanup.
+    def _raising_impl(*args, **kwargs):  # type: ignore[no-untyped-def]
+        from src.pricing.live_theo import _RoundPFnImpl
+        fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+        dp._ROUND_P_FNS.append(fn)
+        live_theo_mod._REACH_MAP_FNS.append(fn)
+        raise RuntimeError("synthetic failure to test finally cleanup")
+
+    with unittest.mock.patch.object(
+        live_theo_mod, "_live_theo_impl", side_effect=_raising_impl
+    ), pytest.raises(RuntimeError, match="synthetic failure"):
+        engine(state)
+
+    # Cleanup ran in finally — registries are back to baseline (or smaller).
+    assert len(dp._ROUND_P_FNS) <= baseline_dp, (
+        f"_ROUND_P_FNS not cleaned on exception: "
+        f"len={len(dp._ROUND_P_FNS)} vs baseline={baseline_dp}"
+    )
+    assert len(live_theo_mod._REACH_MAP_FNS) <= baseline_reach, (
+        f"_REACH_MAP_FNS not cleaned on exception: "
+        f"len={len(live_theo_mod._REACH_MAP_FNS)} vs baseline={baseline_reach}"
+    )
 
 
 def test_live_theo_engine_is_frozen() -> None:
