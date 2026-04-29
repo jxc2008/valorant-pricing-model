@@ -39,6 +39,7 @@ from src.pricing.live_theo import (
     _live_theo_impl,
     _marginal_map_prob,
     _p_map_decisive,
+    _p_reach_map,
     _RoundPFnImpl,
 )
 
@@ -509,6 +510,43 @@ def test_p_map_decisive_for_future_map_in_bo3() -> None:
     # Map 2 reached only if maps 0 and 1 split 1-1. Once reached, decisive.
     p_decisive = _p_map_decisive(state, 2, hr)
     assert 0.0 <= p_decisive <= 1.0
+
+
+def test_p_reach_map_zero_for_clinched_series_state() -> None:
+    """CR-01 (VERIFICATION.md gaps[0]): a 2-0 BO3 cannot reach map 2 even
+    though ``map_idx == m == 2`` — the series-clinch short-circuit must fire
+    BEFORE the map_idx terminal check.
+    """
+    bo3 = BO3State(
+        map_idx=2,
+        a_map_score=2,
+        b_map_score=0,
+        a_round=0,
+        b_round=0,
+        side_orient="a_atk",
+        map_pool=("Lotus", "Bind", "Haven"),
+        pistol_winner_a=(True, True, None),
+    )
+    state = _synthetic_match_state(map_idx=2, a_map_score=2, b_map_score=0)
+    fn = _RoundPFnImpl(match_state=state, half_rates=_synthetic_half_rates())
+    assert _p_reach_map(bo3, fn, m=2) == 0.0
+
+
+def test_p_reach_map_zero_for_b_clinched_series_state() -> None:
+    """CR-01 mirror: 0-2 BO3 also cannot reach map 2."""
+    bo3 = BO3State(
+        map_idx=2,
+        a_map_score=0,
+        b_map_score=2,
+        a_round=0,
+        b_round=0,
+        side_orient="a_atk",
+        map_pool=("Lotus", "Bind", "Haven"),
+        pistol_winner_a=(False, False, None),
+    )
+    state = _synthetic_match_state(map_idx=2, a_map_score=0, b_map_score=2)
+    fn = _RoundPFnImpl(match_state=state, half_rates=_synthetic_half_rates())
+    assert _p_reach_map(bo3, fn, m=2) == 0.0
 
 
 def test_compute_confidence_in_unit_interval() -> None:

@@ -460,16 +460,23 @@ def _p_reach_map_cached(
 ) -> float:
     """Memoized P(reach map m starting from ``state``).
 
+    Terminal-check order (CR-01 fix — VERIFICATION.md gaps[0]): the series-clinch
+    short-circuit MUST fire BEFORE the ``state.map_idx == m`` check. Otherwise an
+    unreachable post-clinch recursion path that lands at ``map_idx == m`` returns
+    1.0 (treated as "reached") instead of 0.0 (the series never plays subsequent
+    maps once a team hits 2 wins).
+
     Recursive on BO3State.map_idx:
+      - a_map_score >= 2 or b_map_score >= 2: return 0.0 (clinched, never reach m)
       - state.map_idx == m: return 1.0 (reached)
-      - a_map_score >= 2 or b_map_score >= 2: return 0.0 (clinched before m)
+      - state.map_idx > m: return 0.0 (past target without reaching — defensive)
       - else: recurse on (state_after_a_wins_current, state_after_b_wins_current)
         weighted by the within-map P(A wins).
     """
-    if state.map_idx == m:
-        return 1.0
     if state.a_map_score >= 2 or state.b_map_score >= 2:
         return 0.0
+    if state.map_idx == m:
+        return 1.0
     if state.map_idx > m:
         return 0.0  # Past target without reaching — defensive.
 
