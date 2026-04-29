@@ -549,6 +549,51 @@ def test_p_reach_map_zero_for_b_clinched_series_state() -> None:
     assert _p_reach_map(bo3, fn, m=2) == 0.0
 
 
+def test_p_map_decisive_for_bo3_middle_map_with_nontrivial_p() -> None:
+    """CR-02 (VERIFICATION.md gaps[1]): from map_idx=0, m=1 (BO3 middle map)
+    must use the correct BO3 decisive formula
+        p_reached * (p_a_{m-1} * p_a_m + (1 - p_a_{m-1}) * (1 - p_a_m))
+    and NOT the BO5+ placeholder ``p_reached * 0.5``. With asymmetric half-rates
+    (Team A ~0.6, Team B ~0.4 per _synthetic_half_rates), the correct value
+    differs from the placeholder by at least 1e-3.
+    """
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(map_idx=0)
+    bo3 = _bo3_state_from_match_state(state)
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+
+    actual = _p_map_decisive(state, m=1, half_rates=hr)
+    p_reached = _p_reach_map(bo3, fn, m=1)
+    p_a_0 = _marginal_map_prob(state, 0, hr)
+    p_a_1 = _marginal_map_prob(state, 1, hr)
+    expected = p_reached * (p_a_0 * p_a_1 + (1.0 - p_a_0) * (1.0 - p_a_1))
+    assert math.isclose(actual, expected, rel_tol=1e-9)
+
+    # Witness that the placeholder bug is closed: the placeholder value
+    # ``p_reached * 0.5`` differs from the correct value by > 1e-3 here.
+    placeholder = p_reached * 0.5
+    assert abs(actual - placeholder) > 1e-3, (
+        f"middle-map decisive {actual!r} should differ from BO5+ placeholder "
+        f"{placeholder!r} under asymmetric half-rates"
+    )
+
+
+def test_p_map_decisive_sum_equals_one_pre_clinch() -> None:
+    """CR-01 ∩ CR-02 conjunction (REVIEW.md IN-04 / law of total probability):
+    sum of _p_map_decisive over all map indices must equal 1.0 for any
+    pre-clinch state. Locks both fixes structurally — over-counting clinched
+    paths (CR-01) or using the BO5+ placeholder (CR-02) breaks this identity.
+    """
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()  # 0-0 root, pre-clinch
+    total = sum(
+        _p_map_decisive(state, m, hr) for m in range(len(state.map_pool))
+    )
+    assert math.isclose(total, 1.0, rel_tol=1e-9), (
+        f"law of total probability violated: sum of decisive masses = {total!r}"
+    )
+
+
 def test_compute_confidence_in_unit_interval() -> None:
     """REQ-confidence-output / D-08: confidence in [0, 1]."""
     hr = _synthetic_half_rates()

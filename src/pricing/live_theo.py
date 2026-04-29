@@ -424,8 +424,16 @@ def _p_map_decisive(
     if m == len(state.map_pool) - 1:
         # Last map of the BO3 — always decisive once reached.
         return p_reached
-    # Non-last future map (BO5+ extension). Phase 1 BO3: unreachable branch.
-    return p_reached * 0.5
+    # Middle future map (BO3: m == state.map_idx + 1, m != len-1). CR-02 fix:
+    # decisive iff the same team wins both the previous map and this one.
+    # P(decisive | reached) = P(prev_winner == m_winner)
+    #                       = p_a_{m-1} * p_a_m + (1 - p_a_{m-1}) * (1 - p_a_m)
+    # Reuses _marginal_map_prob so the same canonical DP backs both terms
+    # (CRule 1 / DEC-002 / DEC-010 — no parallel math).
+    p_a_wins_m_minus_1 = _marginal_map_prob(state, m - 1, half_rates)
+    p_a_wins_m = _marginal_map_prob(state, m, half_rates)
+    p_decisive_given_reached = p_a_wins_m_minus_1 * p_a_wins_m + (1.0 - p_a_wins_m_minus_1) * (1.0 - p_a_wins_m)  # noqa: E501 — plan acceptance grep requires single-line BO3 decisive formula
+    return p_reached * p_decisive_given_reached
 
 
 # Registry indirection for lru_cache — RoundPFn closures aren't reliably
