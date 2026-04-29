@@ -13,6 +13,38 @@ same DP for series and per-map; no parallel models). Fixes documented bugs:
      side comes from `RoundPFn.next_side_orient_for(map_idx)` which live_theo
      binds to `MatchState.map_side_orients[map_idx]`. NO 'a_atk' default
      literal lives in this module.
+  4. DP forward-pass dropped pistol_winner_a updates at the round-1 boundary
+     (CR-05 / 01-VERIFICATION.md gaps[0]) → ``_advance_round`` now sets
+     ``pistol_winner_a[map_idx] = a_wins`` when (and only when) round 1
+     settles AND the slot is currently None. Anti-eco rounds {2, 3, 14, 15}
+     in DP recursion now dispatch correctly via round_types.py.
+
+Phase 1 simplifications
+-----------------------
+A6 / A8 in RESEARCH.md Assumptions Log; the second-half pistol limitation
+below is a NEW Phase-1 simplification — Phase-2 follow-up.
+
+- Rounds 1, 13 (pistols): half-rates Bradley-Terry blend (A8). Phase 2 will
+  calibrate per-team pistol-only rates from match_round_data and swap them
+  in via the round_types.py dispatch — the call shape doesn't change.
+- Rounds 3, 15 use the same GUN_WIN_RATE as rounds 2, 14 (A6). Phase 2
+  calibration may differentiate (~75% on round 2 vs ~60% on round 3 per
+  roadmap §1.3).
+- pistol_winner_a SECOND-HALF LIMITATION (NEW Phase-1 simplification;
+  Phase-2 follow-up — track separately at the roadmap level if Phase 4
+  calibration surfaces it as a need): the
+  ``pistol_winner_a: tuple[Optional[bool], ...]`` shape is keyed by ``map_idx``
+  ONLY (one slot per map). It records the FIRST-half pistol winner. Rounds
+  14/15 (anti-eco for the second-half pistol) currently dispatch on
+  ``pistol_winner_a[map_idx]`` — i.e., they re-use the first-half pistol
+  winner as a proxy. This is structurally wrong but quantitatively bounded
+  for Phase 1: the dispatch produces GUN_WIN_RATE / 1-GUN_WIN_RATE biased
+  toward the first-half pistol's outcome. Phase 2
+  (REQ-round-event-data-pipeline) will extend the data shape to
+  ``tuple[Optional[tuple[bool, bool]], ...]`` per (map, half) and update
+  the round_types.py dispatch to consult the appropriate half. NO
+  data-shape change in Phase 1 — round_types.py:140 + the defensive 0.5
+  fallback at round_types.py:152 cover the gap until Phase 2 lands.
 
 Cache strategy
 --------------
