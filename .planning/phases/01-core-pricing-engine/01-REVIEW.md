@@ -1,332 +1,274 @@
 ---
 phase: 01-core-pricing-engine
-reviewed: 2026-04-28T22:00:00Z
+reviewed: 2026-04-29T00:00:00Z
 depth: standard
-files_reviewed: 15
+files_reviewed: 5
 files_reviewed_list:
-  - src/config/constants.py
-  - src/pricing/__init__.py
-  - src/pricing/blend.py
-  - src/pricing/data.py
   - src/pricing/dp.py
   - src/pricing/live_theo.py
-  - src/pricing/round_conclusion.py
-  - src/pricing/round_types.py
-  - tests/config/test_constants.py
-  - tests/pricing/__init__.py
-  - tests/pricing/test_blend.py
   - tests/pricing/test_dp.py
   - tests/pricing/test_live_theo.py
-  - tests/pricing/test_round_conclusion.py
   - tests/pricing/test_round_types.py
 findings:
-  critical: 1
+  critical: 0
   warning: 3
-  info: 3
+  info: 4
   total: 7
 status: issues_found
 ---
 
-# Phase 1: Code Review Report (Re-review after 01-06 gap closure)
+# Phase 1: Code Review Report (Post-gap-closure re-review for plan 01-07)
 
-**Reviewed:** 2026-04-28
+**Reviewed:** 2026-04-29
 **Depth:** standard
-**Files Reviewed:** 15
-**Status:** issues_found
+**Files Reviewed:** 5
+**Status:** issues_found (no BLOCKERs; warnings + info only)
+**Supersedes:** prior 01-REVIEW.md (CR-01..CR-04 closed by 01-06; CR-05 / WR-06 closed by 01-07)
 
 ## Summary
 
-Phase 01-06 closed the four BLOCKERs (CR-01..CR-04) flagged in the prior
-01-REVIEW.md. The fixes verify cleanly under a line-by-line trace:
+This re-review re-evaluates the five source/test files in scope for plan
+**01-07-pistol-anti-eco-dp-propagation** (BLOCKER CR-05 + WARNING WR-06
+closure). Both CR-05 and WR-06 verify cleanly under a line-by-line trace:
 
-  - **CR-01** (`_p_reach_map_cached` terminal-check order): `live_theo.py:495-500`
-    short-circuits on `a_map_score >= 2 or b_map_score >= 2` BEFORE the
-    `state.map_idx == m` check. Tests at `test_live_theo.py:515-549` lock
-    both A-clinched and B-clinched scenarios.
-  - **CR-02** (`_p_map_decisive` BO3 middle-map formula): `live_theo.py:432-436`
-    replaces the BO5+ `p_reached * 0.5` placeholder with the correct
-    `p_reached * (p_{m-1} * p_m + (1 - p_{m-1}) * (1 - p_m))` formula. The
-    law-of-total-probability test at `test_live_theo.py:581-594` provides
-    structural lock-in.
-  - **CR-03** (`_compute_vega` OT/terminal short-circuits): `live_theo.py:578-596`
-    early-returns 0 at series and within-map terminals, and uses the OT
-    coinflip-leaf variance at total=24 (DEC-009). Tests at
-    `test_live_theo.py:658-750` cover symmetric and asymmetric clinch states.
-  - **CR-04** (registry/cache cleanup): `LiveTheoEngine.__call__` wraps
+  - **CR-05** (`dp._advance_round` pistol propagation):
+    `src/pricing/dp.py:156-187` now writes
+    `pistol_winner_a[state.map_idx] = a_wins` when (and only when) round 1
+    settles AND the existing slot is `None`. The don't-override invariant
+    is enforced by the `existing is None` guard on line 172. Regression
+    coverage at `tests/pricing/test_dp.py:476-583` includes both the
+    forward-propagation lock (rounds 2/3 dispatch to GUN_WIN_RATE after
+    round 1 settles) and the immutability lock (already-set
+    `pistol_winner_a[map_idx]` is not overridden on subsequent advances).
+  - **WR-06** (`_within_map_p_a_wins` future-map sub-DP propagation):
+    `src/pricing/live_theo.py:280-289` propagates the same logic into the
+    inline within-map state-advance for future maps. The strict-ordering
+    structural test at `tests/pricing/test_live_theo.py:1083-1178`
+    (`p_a_pistol > p_unset > p_b_pistol`) is the load-bearing post-fix
+    invariant; pre-fix all three values collapse to the same number.
+  - **End-to-end behavioral lock** at
+    `tests/pricing/test_live_theo.py:1186-1295` asserts the same strict
+    ordering through the public `LiveTheoEngine` surface under asymmetric
+    half-rates with `total=1e9` (no shrinkage).
+
+The CR-05 fix correctly distinguishes:
+  - **Round-1 boundary trigger** (`state.a_round == 0 and state.b_round == 0`)
+    — fires for the first round of every map (rounds 1 of map 0, 1 of map 1,
+    1 of map 2). Rounds 13 (second-half pistol) are NOT triggered, which is
+    the documented Phase-1 limitation per `dp.py:33-47` and intentional.
+  - **Don't-override invariant** (`existing is None`) — preserves
+    ingestion-driven `True`/`False` across DP recursion.
+
+CR-01..CR-04 (closed by plan 01-06) remain closed in the current
+`live_theo.py` / `dp.py`:
+
+  - **CR-01**: `_p_reach_map_cached` (`live_theo.py:533-538`) checks
+    `a_map_score >= 2 or b_map_score >= 2` BEFORE the
+    `state.map_idx == m` check.
+  - **CR-02**: `_p_map_decisive` (`live_theo.py:471-473`) uses the BO3
+    middle-map formula
+    `p_a_{m-1} * p_a_m + (1 - p_a_{m-1}) * (1 - p_a_m)`.
+  - **CR-03**: `_compute_vega` (`live_theo.py:617-634`) early-returns 0 at
+    series + within-map terminals and uses the OT coinflip-leaf variance
+    at total=24.
+  - **CR-04**: `LiveTheoEngine.__call__` (`live_theo.py:672-684`) wraps
     `_live_theo_impl` in `try/finally` and clears both `_ROUND_P_FNS` and
-    `_REACH_MAP_FNS` (plus their respective `lru_cache`s) on every call,
-    including on exception. Verified by `test_live_theo.py:782-848`.
+    `_REACH_MAP_FNS` registries plus their lru_caches on every call,
+    including on exception.
 
-The follow-up surface scan turned up one BLOCKER and several
-warning/info-tier defects not in the original 01-REVIEW.md scope:
-
-  - **CR-05 (BLOCKER, missed in original review)**: `_advance_round` and
-    `_advance_to_next_map` propagate `pistol_winner_a` unchanged through DP
-    recursion. When `LiveTheoEngine` is invoked at a pre-pistol state
-    (i.e., `state.pistol_winner_a[map_idx] is None`, which is the natural
-    state at the start of every map), the DP forward-pass settles round 1
-    via the half-rates blend but the recursive successor states still hold
-    `pistol_winner_a[map_idx] = None`. `round_types.round_p_for_round`
-    therefore dispatches rounds {2, 3, 14, 15} to the **defensive 0.5
-    fallback** instead of the proper conditional `GUN_WIN_RATE`/`1-GUN_WIN_RATE`
-    expectation. The pistol+anti-eco model (DEC-011 / CRule 4) is silently
-    inactive for the bulk of pre-match pricing.
-
-The remaining findings are pre-existing quality issues that the original
-review didn't catch; warnings document subtle semantic gaps, info items
-flag style/maintainability papercuts.
-
-## Critical Issues
-
-### CR-05: DP forward-pass never updates `pistol_winner_a`; anti-eco dispatch silently dead in DP recursion (MISSED in original review)
-
-**File:** `src/pricing/dp.py:104-122`, `src/pricing/dp.py:125-149`, `src/pricing/round_types.py:147-153`
-
-**Issue:** `_advance_round` (and `_advance_to_next_map`) returns a new `BO3State`
-that copies `pistol_winner_a` verbatim from the parent state:
-
-```python
-return BO3State(
-    map_idx=state.map_idx,
-    a_map_score=state.a_map_score,
-    ...
-    pistol_winner_a=state.pistol_winner_a,  # <-- never updated by branch
-)
-```
-
-`pistol_winner_a` is intended to record who won round 1 (the pistol) of
-each map (DEC-011: rounds 2, 3, 14, 15 dispatch on this). Ingestion writes
-this entry once round 1 completes. But during DP forward-simulation from a
-pre-pistol live state, the DP advances `state.a_round=0, state.b_round=0
-→ a_round=1, state.b_round=0` (taking the "A wins round 1" branch) without
-ever populating `pistol_winner_a[map_idx] = True`. The same is true for the
-"B wins round 1" branch.
-
-When the DP recurses into round 2 (`a_round + b_round + 1 == 2`),
-`round_p_for_round` correctly identifies the round as anti-eco, looks up
-`state.pistol_winner_a[state.map_idx]`, finds `None`, and falls into the
-defensive branch (`round_types.py:148-152`):
-
-```python
-if pistol_won_by_a is None:
-    # Defensive — round 2 implies round 1 is settled, so this shouldn't
-    # happen in well-formed states. Returning 0.5 keeps the DP value in
-    # range while flagging the malformed input through the test suite.
-    return 0.5
-```
-
-The comment's premise — *"round 2 implies round 1 is settled"* — is **false
-for the DP's own forward simulation** even on well-formed live states.
-Whenever the DP starts from a state where `pistol_winner_a[map_idx]` is
-unsettled (which is the *normal* condition at the start of every map),
-all anti-eco rounds in the recursion silently flatten to 0.5.
-
-**Concrete impact:** For Phase-4 pre-match pricing on a balanced matchup,
-the impact on a single anti-eco round is small (because `0.822 * p +
-0.178 * (1-p)` evaluates near 0.5 when `p ≈ 0.5`). For asymmetric matchups
-(say `p_pistol_A = 0.6`), the proper expectation is `0.822 * 0.6 +
-0.178 * 0.4 = 0.564`, vs. the dead-branch fallback's flat `0.5` — a ~6
-percentage-point per-round error. Compounded across 4 anti-eco rounds per
-map × 3 maps = 12 anti-eco rounds, this materially distorts both
-`theo_series` and `theo_map[i]`.
-
-**Why the existing tests miss it:** `test_anti_eco_with_none_pistol_winner_returns_defensive_05`
-(`test_round_types.py:213-222`) explicitly asserts the defensive 0.5
-fallback, blessing the broken behavior. The DP-level integration tests
-(`test_live_theo.py`) use synthetic half-rates that produce `p ≈ 0.5`
-across every map/side combo (`_synthetic_half_rates` line 178+: rates of
-0.6/0.5/0.4/0.5), masking the asymmetric-matchup magnitude entirely.
-
-**Fix:** The DP must update `pistol_winner_a[map_idx]` when advancing past
-round 1 of a map. The simplest implementation:
-
-```python
-def _advance_round(state: BO3State, a_wins: bool) -> BO3State:
-    new_a_round = state.a_round + (1 if a_wins else 0)
-    new_b_round = state.b_round + (0 if a_wins else 1)
-    if new_a_round + new_b_round == REGULATION_HALF:
-        new_side_orient = "a_def" if state.side_orient == "a_atk" else "a_atk"
-    else:
-        new_side_orient = state.side_orient
-
-    # Update pistol_winner_a when advancing past round 1 of the current map.
-    # Round 1 completes when the round count was (0, 0) and is now (1, 0) or
-    # (0, 1). Only update if the entry is currently None (don't override the
-    # ingested live value if already settled).
-    new_pistol = state.pistol_winner_a
-    if state.a_round == 0 and state.b_round == 0:
-        # We're committing the outcome of round 1 (pistol).
-        existing = state.pistol_winner_a[state.map_idx]
-        if existing is None:
-            new_pistol = tuple(
-                (a_wins if i == state.map_idx else state.pistol_winner_a[i])
-                for i in range(len(state.pistol_winner_a))
-            )
-    return BO3State(
-        map_idx=state.map_idx,
-        a_map_score=state.a_map_score,
-        b_map_score=state.b_map_score,
-        a_round=new_a_round,
-        b_round=new_b_round,
-        side_orient=new_side_orient,
-        map_pool=state.map_pool,
-        pistol_winner_a=new_pistol,
-    )
-```
-
-The same logic must also apply at the start of round 13 (second-half
-pistol) — `_advance_round` from total=12 → total=13. The current
-`pistol_winner_a` data shape (one slot per map) does not record the
-second-half pistol outcome separately, so the dispatch in
-`round_types.py:140` for round 13 correctly falls back to the half-rates
-blend (Phase-1 simplification A8). But for rounds 14 and 15, the logic
-relies on a separately-tracked second-half pistol winner. This dispatch
-gap is itself a Phase-1 modelling limitation — flag for Phase 2 follow-up
-or extend the pistol_winner_a shape to `tuple[Optional[tuple[bool, bool]], ...]`
-per (map, half).
-
-Add a regression test that asserts the DP forward-pass produces a non-flat
-P(A wins round 2 | A won round 1) under asymmetric pistol_winner_a propagation:
-
-```python
-def test_dp_anti_eco_uses_gun_win_rate_after_round_1_branch() -> None:
-    """CR-05: DP recursion must update pistol_winner_a when advancing past
-    round 1, so anti-eco rounds use GUN_WIN_RATE (not 0.5 fallback).
-    """
-    hr = _synthetic_half_rates()
-    state = _synthetic_match_state(pistol_winner_a={0: None, 1: None, 2: None})
-    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
-    bo3 = _bo3_state_from_match_state(state)
-
-    # State at round 2 with A having won round 1: a_round=1, b_round=0.
-    state_after_round_1_a = _advance_round(bo3, a_wins=True)
-    p_round_2 = fn(state_after_round_1_a)
-    # Should be GUN_WIN_RATE (0.822), NOT 0.5.
-    assert math.isclose(p_round_2, GUN_WIN_RATE, rel_tol=1e-9), (
-        f"Anti-eco round 2 should use GUN_WIN_RATE after A won round 1, got {p_round_2}"
-    )
-```
-
-This test currently FAILS against the codebase as shipped.
-
----
+Findings below are pre-existing quality concerns surfaced during the
+re-review trace. **Zero BLOCKERs.** All flagged items are warnings or
+info-tier defects that don't compromise correctness for Phase 1's
+documented scope.
 
 ## Warnings
 
-### WR-06: `_within_map_p_a_wins` does not propagate pistol outcome through its sub-DP — same root cause as CR-05
+### WR-01: `_within_map_p_a_wins` duplicates `dp._advance_round` state-advance logic — high regression risk for Phase 2
 
-**File:** `src/pricing/live_theo.py:204-272`
+**File:** `src/pricing/live_theo.py:245-307`, `src/pricing/dp.py:136-187`
 
-**Issue:** The within-map sub-DP used for future-map marginals (`m > state.map_idx`)
-constructs synthetic states that always carry the BO3State's `pistol_winner_a`
-(line 250) — which for future maps is necessarily `None`. The recursion at
-line 263-267 advances `a_round` and `b_round` but never updates the
-synthetic state's `pistol_winner_a`. Same defect as CR-05, scoped to the
-future-map sub-DP. After the CR-05 fix to `_advance_round` lands, the
-identical update logic must be replicated in the within-map recursion
-(or `_within_map_p_a_wins` should be refactored to call `_advance_round`
-directly rather than reimplementing state advance inline).
+**Issue:** Plan 01-07 closed CR-05 in `dp._advance_round` AND closed WR-06
+in `_within_map_p_a_wins._p_a_recursive` by **duplicating the
+pistol-propagation + side-flip logic** rather than extracting a shared
+helper. The two implementations are now structurally identical:
 
-**Fix:** Either share state-advance helpers between dp.py and the within-map
-sub-DP, or duplicate the pistol-update logic at lines 253-262 of
-`_within_map_p_a_wins`. Add the analogous regression test asserting that
-`_within_map_p_a_wins` produces the GUN_WIN_RATE at round 2 of a future map
-when A wins round 1 of that map in the recursion.
-
----
-
-### WR-07: `_within_map_p_a_wins` docstring claims `functools.lru_cache` but implementation uses a plain `dict`
-
-**File:** `src/pricing/live_theo.py:221-227`
-
-**Issue:** The docstring (line 221) says:
-
-> Memoizes the within-map sub-states with functools.lru_cache. The cache is
-> keyed by (a_round, b_round, side_orient) only — closure-bound state
-> (map_idx, starting_side, etc.) is stable for the call.
-
-But the implementation (line 227) uses `memo: dict[tuple[int, int, str], float] = {}`,
-not `functools.lru_cache`. A future maintainer reading the docstring will
-either look for an `@lru_cache` decorator that isn't there, or assume the
-cache is shared across calls (it isn't — `memo` is freshly constructed
-per `_within_map_p_a_wins` invocation). The comment on line 225 explicitly
-calls the closure "lightweight," implying intentional non-sharing, which
-contradicts the docstring claim.
-
-**Fix:** Update the docstring to match the implementation:
-
-```python
-"""...
-
-Memoizes the within-map sub-states with a per-call ``dict``. The cache is
-local to each invocation (a fresh ``memo`` is allocated at line 227) so
-sub-results are not shared across `_marginal_map_prob` calls — that
-non-sharing is intentional, since the closure-bound `match_state` and
-`half_rates` differ across callers.
-"""
+```
+Logic                              dp._advance_round       _within_map_p_a_wins
+                                   (lines 156-187)         (lines 291-300)
+─────────────────────────────────────────────────────────────────────────────
+Increment winner's round count     ✓                       ✓
+Side flip at total == 12           ✓                       ✓ (split a/b branches)
+pistol[map_idx] update on round 1  ✓ (lines 170-176)       ✓ (lines 280-286)
+Don't-override (existing is None)  ✓                       ✓
 ```
 
+This is exactly the parallel-models defect class PRD §12.2 #6 was
+hardened against (`series_theo` / `series_theo_no_sides` /
+`series_theo_from_map_probs` triplet, DEC-010). Phase 2 will extend
+`pistol_winner_a` to `tuple[Optional[tuple[bool, bool]], ...]` per (map,
+half) — at that point both implementations must be updated in lockstep
+or they will diverge. The previous review's WR-06 fix description
+explicitly listed *"share state-advance helpers between dp.py and the
+within-map sub-DP, or duplicate the pistol-update logic"* as the two
+options; the implementation chose to duplicate.
+
+**Why it's not a BLOCKER right now:** The two implementations agree
+behaviorally as of this review — verified by
+`test_within_map_anti_eco_uses_gun_win_rate_after_round_1_branch` plus
+the end-to-end `test_live_theo_asymmetric_pistols_match_unset_pistols_after_dp_propagation`
+test. The bug is **latent**, not active.
+
+**Fix:** Extract a shared `_advance_round_inline(a_round, b_round,
+side_orient, pistol, map_idx, a_wins)` helper that returns the new
+4-tuple, and call it from both `dp._advance_round` and
+`_within_map_p_a_wins._p_a_recursive`. Alternatively, refactor
+`_within_map_p_a_wins` to call `dp._advance_round` directly on a synthetic
+BO3State and unpack the relevant fields — the latter is more invasive but
+eliminates the duplication entirely.
+
+```python
+# src/pricing/dp.py — extract pure helper from _advance_round:
+def _advance_round_fields(
+    a_round: int,
+    b_round: int,
+    side_orient: str,
+    pistol: tuple[Optional[bool], ...],
+    map_idx: int,
+    a_wins: bool,
+) -> tuple[int, int, str, tuple[Optional[bool], ...]]:
+    new_a = a_round + (1 if a_wins else 0)
+    new_b = b_round + (0 if a_wins else 1)
+    new_side = (
+        ("a_def" if side_orient == "a_atk" else "a_atk")
+        if new_a + new_b == REGULATION_HALF
+        else side_orient
+    )
+    new_pistol = pistol
+    if a_round == 0 and b_round == 0 and pistol[map_idx] is None:
+        new_pistol = tuple(
+            (a_wins if i == map_idx else pistol[i]) for i in range(len(pistol))
+        )
+    return new_a, new_b, new_side, new_pistol
+```
+
+Both call sites then thin to a single helper invocation. Add a regression
+test asserting the two implementations produce identical state
+trajectories on a small sample (e.g., 20 random reachable states).
+
 ---
 
-### WR-08: Per-`m` re-registration in `_p_reach_map` defeats lru_cache reuse across `_compute_confidence` iteration
+### WR-02: Rounds 14 / 15 dispatch on first-half pistol winner — silent semantic bug, documented but not gated
 
-**File:** `src/pricing/live_theo.py:460-471`
+**File:** `src/pricing/dp.py:33-47` (docstring), `src/pricing/round_types.py:146-153`
 
-**Issue:** `_p_reach_map` is the public wrapper that registers `round_p_fn`
-in `_REACH_MAP_FNS` and dispatches to the `lru_cache`-decorated
-`_p_reach_map_cached`. Each call appends to the registry and returns a
-fresh int id. `_compute_confidence` (line 539-548) calls
-`_p_map_decisive(state, m, half_rates)` for each `m`; for future maps,
-`_p_map_decisive` calls `_p_reach_map(bo3, fn, m)` — registering a new
-closure id per map. Since `_p_reach_map_cached` is keyed on
-`(state, round_p_fn_id, m)`, two consecutive calls with the same
-`(state, fn, m)` but different ids miss the cache.
+**Issue:** `pistol_winner_a` is keyed by `map_idx` only — one slot per map.
+It records the FIRST-half pistol winner. Rounds 14/15 (anti-eco for the
+SECOND-half pistol) currently dispatch on `pistol_winner_a[map_idx]` —
+i.e., they re-use the first-half pistol winner as a proxy for the
+second-half pistol winner. This is structurally wrong: the second-half
+pistol is a separate event with no necessary correlation to the first-half
+pistol. The docstring at `dp.py:33-47` explicitly acknowledges this:
 
-The recursion inside `_p_reach_map_cached` further calls
-`series_value(state, fn)` three times per recursion level (root, after_a,
-after_b) — each of which does its own `_register_round_p_fn` in dp.py,
-adding to `_ROUND_P_FNS`. The `_series_value_cached` lru_cache is therefore
-also missed across these three calls within a single
+> rounds 14/15 currently dispatch on `pistol_winner_a[map_idx]` — i.e.,
+> they re-use the first-half pistol winner as a proxy. **This is
+> structurally wrong but quantitatively bounded for Phase 1**: the
+> dispatch produces GUN_WIN_RATE / 1-GUN_WIN_RATE biased toward the
+> first-half pistol's outcome.
+
+**Concrete impact:** In a 50/50 first-half pistol, rounds 14/15 should be
+~50/50 too (because the second-half pistol is also ~50/50). The current
+dispatch hard-couples them: if A won the first-half pistol, rounds 14/15
+return GUN_WIN_RATE = 0.822 — implying A is also ~82% likely to win the
+post-pistol anti-eco rounds in the second half, which is unjustified. For
+asymmetric matchups the bias is similar magnitude.
+
+This is the DEC-011 / CRule 4 model (rounds 13/14/15 should be modeled
+explicitly, not constant `p1`/`p2`) — but the implementation only models
+the first-half pistol explicitly. Round 13 falls through to half-rates
+blend (acceptable Phase-1 simplification A8); rounds 14/15 fall through
+to the first-half pistol's GUN_WIN_RATE expectation (NOT acceptable as a
+silent default).
+
+**Why it's not a BLOCKER:** The bias is bounded — both teams' biases are
+mirrored, so the series-level theo error partially cancels. PRD §6 doesn't
+require Phase 1 to be live-trading-ready, and Phase 2
+(REQ-round-event-data-pipeline) extends the data shape per the
+documented follow-up.
+
+**Fix (Phase 2 — out of scope for this re-review's hot fix):** Extend
+`pistol_winner_a` to `tuple[Optional[tuple[bool, bool]], ...]` per (map,
+half) and update `round_types.round_p_for_round` to consult the
+appropriate half. The `dp._advance_round` trigger must also fire at the
+round-13 boundary (`state.a_round + state.b_round == REGULATION_HALF`,
+which is the same condition currently used for the side flip). Until
+then, add a defensive guard in `round_types.round_p_for_round` that logs
+or asserts when a round-14/15 dispatch consults the first-half pistol
+slot, so Phase 4 paper-trading data quantifies the bias.
+
+**Phase-1 mitigation:** Either (a) hard-code rounds 14/15 to the
+half-rates blend (matching round 13's Phase-1 fallback) instead of
+dispatching on `pistol_winner_a`, OR (b) widen the test
+`test_anti_eco_returns_gun_win_rate_when_a_won_pistol` to flag rounds
+14/15 as Phase-2 deferred (currently it asserts GUN_WIN_RATE for those
+rounds, which locks in the structurally-wrong dispatch as a regression
+fixture).
+
+---
+
+### WR-03: Per-`m` `_p_reach_map` re-registration defeats `lru_cache` reuse across `_compute_confidence` iteration (carry-over from prior review's WR-08)
+
+**File:** `src/pricing/live_theo.py:498-509`
+
+**Issue:** `_p_reach_map` is the public wrapper that registers
+`round_p_fn` in `_REACH_MAP_FNS` and dispatches to the
+`lru_cache`-decorated `_p_reach_map_cached`. Each call appends to the
+registry and returns a fresh int id. `_compute_confidence`
+(`live_theo.py:564-586`) calls `_p_map_decisive(state, m, half_rates)`
+for each `m`; for future maps, `_p_map_decisive` calls
+`_p_reach_map(bo3, fn, m)` — registering a new closure id per map. Since
+`_p_reach_map_cached` is keyed on `(state, round_p_fn_id, m)`, two
+consecutive calls with the same `(state, fn, m)` but different ids miss
+the cache.
+
+Inside `_p_reach_map_cached`, `series_value(...)` is called three times
+per recursion level (root, after_a, after_b) — each triggering its own
+`_register_round_p_fn` in `dp.py`. The `_series_value_cached` lru_cache
+is therefore also missed across these three calls within a single
 `_p_reach_map_cached` evaluation.
 
-The CR-04 cleanup correctly bounds the lifetime of these registrations to
-a single `live_theo` call, so this is not a memory leak. But the design's
-caching infrastructure provides essentially zero benefit during a single
-call because the int ids constantly change. **Performance is out of v1
-scope per review rules; flagging here as a quality concern because the
-cache infrastructure is non-trivial and contributes false confidence
-("memoization is in place") that doesn't match runtime behavior.**
+The CR-04 cleanup correctly bounds the lifetime of these registrations
+to a single `live_theo` call, so this is not a memory leak. Performance
+is out of v1 scope per the review rules; this is flagged as a **quality**
+concern: the cache infrastructure is non-trivial (`lru_cache(maxsize=None)`
++ registry indirection + per-call clear) but provides essentially zero
+benefit during a single call because the int ids constantly change. The
+CR-04 docstring (`dp.py:233-248`) implies "0% cross-call hits" implies
+"100% within-call hits," which is misleading.
 
-**Fix:** Two options post-Phase-1:
-
-(a) Hoist `round_p_fn` registration above the per-`m` and per-recursion
-    calls. `_compute_confidence` can register the closure once and pass
-    the int id down through `_p_map_decisive` → `_p_reach_map_cached` and
-    through `series_value`'s API.
-
-(b) Make `RoundPFn` closures themselves hashable (requires WR-01 from the
-    prior review — pistol_winner_a → tuple) and drop the registry
-    indirection entirely. CR-04's docstring suggests this was the
-    deliberately deferred path.
-
-No regression test required — this is a quality finding, not a
-correctness defect.
+**Fix (post-Phase-1):** Hoist `round_p_fn` registration above the
+per-`m` and per-recursion calls. `_compute_confidence` registers the
+closure once and threads the int id down through `_p_map_decisive`
+→ `_p_reach_map_cached` and through `series_value`'s API. Alternatively,
+make `RoundPFn` closures hashable (`MatchState` is a frozen dataclass —
+the only barrier was the historical `pistol_winner_a: dict` field, but
+the current `_RoundPFnImpl` already wraps it; extending `MatchState` to
+make `pistol_winner_a` a tuple inside the dataclass and updating the
+ingestion layer is the cleaner fix). No regression test required — this
+is a quality finding, not a correctness defect.
 
 ---
 
 ## Info
 
-### IN-05: `LiveTheoEngine.__call__` performs `import` inside the hot path
+### IN-01: `LiveTheoEngine.__call__` performs `import` inside the hot path (carry-over from prior review's IN-05)
 
-**File:** `src/pricing/live_theo.py:641`
+**File:** `src/pricing/live_theo.py:679`
 
 **Issue:** `__call__` runs `from src.pricing import dp as _dp` on every
-invocation. The module is already imported at file top (line 43:
-`from src.pricing.dp import (...)`); this re-import only fetches the
-already-loaded module reference. Python caches the import, so the
-performance cost is small, but the placement is unusual and signals
-"defensive against circular import" without actually being needed (no
-circular dependency exists between live_theo.py and dp.py).
+invocation. The import is cached by Python so the cost per call is small
+(~1µs), but the placement is unusual and signals "defensive against
+circular import" without actually being needed (no circular dependency
+exists — `dp.py` does not import `live_theo.py`).
 
 **Fix:** Hoist to module top alongside the existing import:
 
@@ -341,65 +283,113 @@ from src.pricing.dp import (
 )
 ```
 
+Then drop line 679.
+
 ---
 
-### IN-06: `_RoundPFnImpl._effective_side` line-118 default `"a_atk"` is the same `'a_atk'` literal `_advance_to_next_map` was hardened against
+### IN-02: `_RoundPFnImpl._effective_side` and `next_side_orient_for` hardcode `"a_atk"` literal — same form `_advance_to_next_map` was hardened against (carry-over from prior review's IN-06)
 
-**File:** `src/pricing/live_theo.py:106-108` and `:117-119`
+**File:** `src/pricing/live_theo.py:106-108`, `:117-119`
 
-**Issue:** The DP regression test at `test_dp.py:386-431` asserts that
-`_advance_to_next_map` does NOT contain a hardcoded `'a_atk'` literal,
-locking PRD §12.2 #6 against the audit-engine bug. But
+**Issue:** The DP regression test at `tests/pricing/test_dp.py:423-468`
+asserts that `_advance_to_next_map` does NOT contain a hardcoded
+`'a_atk'` literal, locking PRD §12.2 #6 against the audit-engine bug. But
 `_RoundPFnImpl._effective_side` (line 108) and
 `_RoundPFnImpl.next_side_orient_for` (line 118) BOTH hardcode `"a_atk"`
-as the defensive default when `map_idx >= len(map_side_orients)`. While
-these branches are dead in well-formed series (the DP terminal checks
-fire first), the literal is exactly the form the regression test was
-designed to forbid one indirection layer up.
+as the defensive default when `map_idx >= len(map_side_orients)`.
 
-The previous review's WR-04 covered this for `next_side_orient_for`; this
-note extends it to `_effective_side` (the read path is even more exposed,
-called per round during DP recursion).
+These branches are dead in well-formed series (the DP terminal checks
+fire first), but the literal is exactly the form the regression test was
+designed to forbid one indirection layer up. Plus, `_effective_side` is
+called per-round during DP recursion — the read path is more exposed
+than `next_side_orient_for`.
 
-**Fix:** Either route through a constants lookup (see WR-04 in
-`01-REVIEW.md` history) or raise on out-of-bounds (fail loud rather than
-silently return a literal). Out of scope for this re-review since WR-04
-was deferred from prior review.
+**Fix:** Either route through a constants lookup or raise on
+out-of-bounds (fail loud rather than silently return a literal):
+
+```python
+def _effective_side(self, state: BO3State) -> str:
+    if state.map_idx >= len(self.match_state.map_side_orients):
+        raise IndexError(
+            f"map_idx {state.map_idx} out of range for "
+            f"map_side_orients length {len(self.match_state.map_side_orients)}"
+        )
+    ...
+```
+
+The series-clinch terminal in `dp._series_value_cached` short-circuits
+before any defensive branch executes, so raising here surfaces real bugs
+without breaking happy-path behavior.
 
 ---
 
-### IN-07: CR-04 defensive comment in `dp._clear_pricing_caches` overstates the safety guarantee
+### IN-03: CR-04 docstring in `dp._clear_pricing_caches` overstates the safety guarantee (carry-over from prior review's IN-07)
 
-**File:** `src/pricing/dp.py:168-184`
+**File:** `src/pricing/dp.py:236-246`
 
 **Issue:** The CR-04 docstring claims:
 
-> Resetting per-call bounds memory without sacrificing real cache hits — the
-> int id changes per call, so cross-call hits are already 0%.
+> Resetting per-call bounds memory without sacrificing real cache hits —
+> the int id changes per call, so cross-call hits are already 0%.
 
-This is true for cross-`live_theo`-call hits (each call registers a fresh
-closure → fresh int id → no shared lru_cache key). But it understates the
-**within-call** caching loss documented in WR-08: each `series_value(...)`
-inside one `_compute_confidence` call also gets a fresh int id, so the
-lru_cache misses across the multiple `series_value` invocations within
-one call too. The "0% cross-call" framing implies "100% within-call,"
-which is not accurate.
+This is true for cross-`live_theo`-call hits (each call registers a
+fresh closure → fresh int id → no shared lru_cache key). But it
+understates the **within-call** caching loss documented in WR-03:
+each `series_value(...)` inside one `_compute_confidence` call also gets
+a fresh int id, so the lru_cache misses across the multiple
+`series_value` invocations within one call too. The "0% cross-call"
+framing implies "100% within-call," which is not accurate.
 
 **Fix:** Rephrase the comment to scope the claim:
 
 ```python
-# The int id changes per `series_value(...)` invocation, so cross-call
-# hits are already 0% AND within-call hits across separate
-# series_value(...) call sites are also 0%. The lru_cache only shares
-# state across recursive sub-calls of a single _series_value_cached
-# evaluation tree (which still provides substantial benefit for the BO3
-# state space).
+# The int id changes per series_value(...) invocation, so cross-call
+# hits are 0% AND within-call hits across separate series_value(...)
+# call sites are 0%. The lru_cache only shares state across recursive
+# sub-calls of a single _series_value_cached evaluation tree — which
+# still provides substantial benefit for the BO3 state space.
 ```
 
 This is a documentation-only fix; no behavior change.
 
 ---
 
-_Reviewed: 2026-04-28_
+### IN-04: `_within_map_p_a_wins` tracks `side_orient` redundantly — `_RoundPFnImpl.__call__` overrides it on every call
+
+**File:** `src/pricing/live_theo.py:245-307`
+
+**Issue:** `_within_map_p_a_wins._p_a_recursive` tracks `side_orient`
+through the recursion (lines 248, 251, 269, 292-300, 306) and passes it
+into the synthetic BO3State on line 269. But `_RoundPFnImpl.__call__`
+(line 100-103) IGNORES the carried side_orient — it computes the
+effective side from `match_state.map_side_orients[state.map_idx]` plus
+the within-map round-12 flip:
+
+```python
+def __call__(self, state: BO3State) -> float:
+    effective_side = self._effective_side(state)
+    s_corrected = replace(state, side_orient=effective_side)
+    return round_p_for_round(s_corrected, self.match_state, self.half_rates)
+```
+
+The two computations agree by design (same starting side, same flip
+condition), so there's no behavioral bug. But the recursion's
+`side_orient` tracking is dead code semantically — it only affects the
+memoization key (line 251) and contributes to local debugging noise.
+Future maintainers reading
+`tests/pricing/test_live_theo.py:340-359` (`test_build_round_p_fn_flips_after_round_12`)
+might assume the tracked side flows through, which it doesn't.
+
+**Fix (low priority):** Drop `side_orient` from the recursion's local
+state. Pass the synthetic BO3State with `side_orient=starting_side`
+unchanged (or even `side_orient="a_atk"` — `_RoundPFnImpl` will override
+either way). Update the memo key to `(a_round, b_round, pistol)` only.
+This shrinks the state space modestly and removes the dead-code maintenance
+hazard. Add a comment: `# side_orient on synthetic state is ignored by
+_RoundPFnImpl.__call__ — see _RoundPFnImpl._effective_side.`
+
+---
+
+_Reviewed: 2026-04-29_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
