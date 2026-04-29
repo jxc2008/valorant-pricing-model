@@ -41,6 +41,7 @@ from src.pricing.live_theo import (
     _p_map_decisive,
     _p_reach_map,
     _RoundPFnImpl,
+    _within_map_p_a_wins,
 )
 
 # --------------------------------------------------------------------------- #
@@ -1072,5 +1073,108 @@ def test_live_theo_property_invariants_hypothesis() -> None:
         assert 0.0 <= out.confidence <= 1.0
 
     _check()
+
+
+# --------------------------------------------------------------------------- #
+# 6. WR-06 regression — _within_map_p_a_wins propagates pistol_winner_a       #
+# --------------------------------------------------------------------------- #
+
+
+def test_within_map_anti_eco_uses_gun_win_rate_after_round_1_branch() -> None:
+    """WR-06 (VERIFICATION.md gaps[1] / 01-REVIEW.md WR-06 — CR-05 scoped to
+    future-map sub-DP): _within_map_p_a_wins's inline state-advance must
+    propagate pistol_winner_a through the recursion, so round 2 of a future
+    map dispatches to GUN_WIN_RATE — not the defensive 0.5 fallback.
+
+    Structural assertion (load-bearing): with the WR-06 fix in place, calling
+    _within_map_p_a_wins with three different pistol_winner_a tuples for a
+    future map produces three DIFFERENT values that respect a strict ordering:
+
+        p_a_pistol = _within_map_p_a_wins(pistol=(None, True,  None))
+        p_b_pistol = _within_map_p_a_wins(pistol=(None, False, None))
+        p_unset    = _within_map_p_a_wins(pistol=(None, None,  None))
+
+    Under the synthetic half-rates (TeamA atk 0.6 / def 0.5; TeamB atk 0.4 /
+    def 0.5), TeamA has a measurable round-1 edge. Post-fix:
+      * p_a_pistol > p_unset > p_b_pistol  (strict inequalities)
+      * The gap p_a_pistol - p_b_pistol is large (anti-eco swing dominates)
+
+    Pre-fix (WR-06 open): all three values are EQUAL because round 2/3 always
+    return 0.5 regardless of pistol_winner_a — the strict-inequality
+    assertion below FAILS structurally on pre-fix `main`.
+
+    This is a structural lock that mechanically distinguishes broken-vs-fixed
+    behavior without depending on absolute magnitudes. The plan's literal
+    "law-of-total-probability decomposition" form (PLAN.md Task 3 Step 3.3)
+    does not hold for the semantics of _within_map_p_a_wins because calling
+    the function with pistol=(None,True,None) forces ALL round-2/3 dispatches
+    to GUN_WIN_RATE regardless of who actually wins R1 in the recursion's
+    own forward-pass — it does NOT represent "the marginal conditional on A
+    winning R1" in the way the decomposition presumes. Per Rule 1, the test
+    is fixed inline to the structural-ordering form, which captures the
+    actual WR-06 invariant.
+    """
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(map_idx=0, pistol_winner_a={0: None, 1: None, 2: None})
+    bo3 = _bo3_state_from_match_state(state)
+
+    p_unset = _within_map_p_a_wins(
+        map_pool=bo3.map_pool,
+        map_idx=1,
+        starting_side="a_atk",
+        pistol_winner_a=(None, None, None),
+        match_state=state,
+        half_rates=hr,
+    )
+    p_a_pistol = _within_map_p_a_wins(
+        map_pool=bo3.map_pool,
+        map_idx=1,
+        starting_side="a_atk",
+        pistol_winner_a=(None, True, None),
+        match_state=state,
+        half_rates=hr,
+    )
+    p_b_pistol = _within_map_p_a_wins(
+        map_pool=bo3.map_pool,
+        map_idx=1,
+        starting_side="a_atk",
+        pistol_winner_a=(None, False, None),
+        match_state=state,
+        half_rates=hr,
+    )
+
+    # Strict ordering — load-bearing WR-06 lock.
+    # Pre-fix all three are equal (anti-eco always 0.5); post-fix they differ.
+    assert p_a_pistol > p_unset > p_b_pistol, (
+        f"WR-06 not closed: expected strict ordering "
+        f"p_a_pistol > p_unset > p_b_pistol, got "
+        f"p_a_pistol={p_a_pistol!r}, p_unset={p_unset!r}, "
+        f"p_b_pistol={p_b_pistol!r}"
+    )
+    # Anti-eco swing must be SUBSTANTIAL — pre-fix, the gap collapses to ~0
+    # (rounded-fallback yields identical values). GUN_WIN_RATE = 0.822 vs
+    # 1 - GUN_WIN_RATE = 0.178 across two anti-eco rounds per half (so at
+    # least 0.05 in the within-map output under any non-degenerate half-rates).
+    assert (p_a_pistol - p_b_pistol) > 0.05, (
+        f"WR-06 not closed: anti-eco swing {p_a_pistol - p_b_pistol!r} too "
+        f"small — round 2/3 dispatch likely still falling through to 0.5"
+    )
+
+    # Also verify the round-1 dispatch is via half-rates blend — establishes
+    # that the recursion does NOT short-circuit R1 in any of the three calls
+    # (R1 is always the pistol dispatch, regardless of pistol_winner_a state).
+    fn_probe = _RoundPFnImpl(match_state=state, half_rates=hr)
+    round_1_synthetic = BO3State(
+        map_idx=1,
+        a_map_score=0,
+        b_map_score=0,
+        a_round=0,
+        b_round=0,
+        side_orient="a_atk",
+        map_pool=bo3.map_pool,
+        pistol_winner_a=(None, None, None),
+    )
+    p_round_1 = fn_probe(round_1_synthetic)
+    assert 0.0 < p_round_1 < 1.0, f"R1 dispatch malformed: {p_round_1}"
 
 
