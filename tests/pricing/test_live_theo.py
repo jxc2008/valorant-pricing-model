@@ -655,6 +655,101 @@ def test_compute_vega_matches_dec_018_formula() -> None:
     assert math.isclose(actual, expected, rel_tol=1e-9)
 
 
+def test_compute_vega_zero_at_series_terminal() -> None:
+    """CR-03 (VERIFICATION.md gaps[2]): vega is 0 when the series is clinched.
+    Theo is the constant 1.0 (or 0.0) so squared deviation is 0.
+    """
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(map_idx=2, a_map_score=2)
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+    bo3_a = _bo3_state_from_match_state(state)
+    assert _compute_vega(bo3_a, fn) == 0.0
+
+    state_b = _synthetic_match_state(map_idx=2, a_map_score=0, b_map_score=2)
+    fn_b = _RoundPFnImpl(match_state=state_b, half_rates=hr)
+    bo3_b = _bo3_state_from_match_state(state_b)
+    assert _compute_vega(bo3_b, fn_b) == 0.0
+
+
+def test_compute_vega_zero_at_within_map_terminal() -> None:
+    """CR-03: vega is 0 when the current map is already decided
+    (a_round or b_round >= WIN_THRESHOLD). Per-round vega is undefined inside
+    a finished map.
+    """
+    hr = _synthetic_half_rates()
+    state_a = _synthetic_match_state(a_round=13, b_round=10)
+    fn_a = _RoundPFnImpl(match_state=state_a, half_rates=hr)
+    bo3_a = _bo3_state_from_match_state(state_a)
+    assert _compute_vega(bo3_a, fn_a) == 0.0
+
+    state_b = _synthetic_match_state(a_round=10, b_round=13)
+    fn_b = _RoundPFnImpl(match_state=state_b, half_rates=hr)
+    bo3_b = _bo3_state_from_match_state(state_b)
+    assert _compute_vega(bo3_b, fn_b) == 0.0
+
+
+def test_compute_vega_at_ot_entry_uses_coinflip_leaf() -> None:
+    """CR-03 (VERIFICATION.md gaps[2], CRule 5): at a_round=12, b_round=12
+    (regulation OT entry, total=24), vega MUST equal the variance of the
+    OT coinflip leaf over next-map series outcomes — not the squared
+    deviation against _advance_round-projected next-map values (which
+    silently bypass the DP's OT hard-stop).
+    """
+    from src.pricing.dp import series_value
+
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(a_round=12, b_round=12)
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+    root = _bo3_state_from_match_state(state)
+
+    actual = _compute_vega(root, fn)
+
+    # Reconstruct expected: variance of the OT coinflip leaf.
+    next_side = fn.next_side_orient_for(root.map_idx + 1)
+    v_a = series_value(
+        _advance_to_next_map(root, a_won=True, next_side_orient=next_side),
+        fn,
+    )
+    v_b = series_value(
+        _advance_to_next_map(root, a_won=False, next_side_orient=next_side),
+        fn,
+    )
+    mean = 0.5 * (v_a + v_b)
+    expected = 0.5 * (v_a - mean) ** 2 + 0.5 * (v_b - mean) ** 2
+    assert math.isclose(actual, expected, rel_tol=1e-9, abs_tol=1e-12)
+    assert actual >= 0.0
+
+
+def test_compute_vega_at_ot_entry_with_asymmetric_clinch_state() -> None:
+    """CR-03 (asymmetric witness): at a_round=12, b_round=12 with a_map_score=1
+    (A is one map up so OT-coinflip-A clinches the series, OT-coinflip-B
+    forces map 3), v_a and v_b differ. The OT-leaf variance is then
+    strictly positive AND differs from the buggy _advance_round projection.
+    """
+    from src.pricing.dp import series_value
+
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state(map_idx=1, a_map_score=1, a_round=12, b_round=12)
+    fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+    root = _bo3_state_from_match_state(state)
+
+    actual = _compute_vega(root, fn)
+
+    next_side = fn.next_side_orient_for(root.map_idx + 1)
+    v_a = series_value(
+        _advance_to_next_map(root, a_won=True, next_side_orient=next_side),
+        fn,
+    )
+    v_b = series_value(
+        _advance_to_next_map(root, a_won=False, next_side_orient=next_side),
+        fn,
+    )
+    mean = 0.5 * (v_a + v_b)
+    expected = 0.5 * (v_a - mean) ** 2 + 0.5 * (v_b - mean) ** 2
+    assert math.isclose(actual, expected, rel_tol=1e-9, abs_tol=1e-12)
+    assert actual >= 0.0
+
+
 def test_data_weight_for_map_min_over_teams() -> None:
     """D-09: _data_weight_for_map = min over teams of avg total / MIN_ROUNDS_FULL_WEIGHT."""
     hr = _synthetic_half_rates()

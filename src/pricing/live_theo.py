@@ -550,7 +550,40 @@ def _compute_vega(root: BO3State, round_p_fn: RoundPFn) -> float:
     series_value lookups (state_a_wins, state_b_wins) plus the root value.
 
     Always >= 0 by construction (sum of squared deviations weighted by probs).
+
+    Terminal short-circuits (CR-03 fix — VERIFICATION.md gaps[2], CRule 5):
+
+      - Series terminal (a_map_score >= 2 or b_map_score >= 2): theo is the
+        constant 1.0 or 0.0; vega is 0.
+      - Within-map terminal (a_round or b_round >= WIN_THRESHOLD): the map is
+        decided; per-round vega is 0 (the next "round" doesn't exist within
+        this map).
+      - OT entry (a_round + b_round >= REGULATION_HALF * 2): _advance_round
+        would push past the DP's OT hard-stop at total=24 (DEC-009 / CRule 5),
+        silently bypassing _ot_coinflip_leaf. Instead, vega here is the
+        VARIANCE of the OT coinflip leaf over next-map series outcomes —
+        consistent with the DP's own OT semantics.
     """
+    # Series terminal: theo is constant, vega is 0.
+    if root.a_map_score >= 2 or root.b_map_score >= 2:
+        return 0.0
+    # Within-map terminal: map is decided, no per-round vega.
+    if root.a_round >= WIN_THRESHOLD or root.b_round >= WIN_THRESHOLD:
+        return 0.0
+    # OT coinflip leaf: vega is variance of the leaf, not of _advance_round.
+    if root.a_round + root.b_round >= REGULATION_HALF * 2:
+        next_side = round_p_fn.next_side_orient_for(root.map_idx + 1)
+        v_a = series_value(
+            _advance_to_next_map(root, a_won=True, next_side_orient=next_side),
+            round_p_fn,
+        )
+        v_b = series_value(
+            _advance_to_next_map(root, a_won=False, next_side_orient=next_side),
+            round_p_fn,
+        )
+        mean = 0.5 * (v_a + v_b)
+        return 0.5 * (v_a - mean) ** 2 + 0.5 * (v_b - mean) ** 2
+    # Standard regulation case (existing body):
     state_a_wins = _advance_round(root, a_wins=True)
     state_b_wins = _advance_round(root, a_wins=False)
     theo = series_value(root, round_p_fn)
