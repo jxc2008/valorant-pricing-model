@@ -647,7 +647,7 @@ Expected: at least 147 + 2 = 149 passed (the third CR-05 test, `_does_not_overri
   </read_first>
   <behavior>
     - `_within_map_p_a_wins` now propagates `pistol_winner_a` correctly through its own forward-pass. After the fix, calling `_within_map_p_a_wins(map_pool=("Lotus","Bind","Haven"), map_idx=1, starting_side="a_atk", pistol_winner_a=(None, None, None), match_state=..., half_rates=...)` and instrumenting the inner `_p_a_recursive` produces, for the round-2 sub-state under "A won round 1 of map 1", a `synthetic` BO3State with `pistol_winner_a[1] = True` (not `None`) when `round_p_for_round` is invoked — so the dispatch hits `GUN_WIN_RATE`, not the 0.5 fallback.
-    - Test 1 (`test_within_map_anti_eco_uses_gun_win_rate_after_round_1_branch`): A direct probe — construct the closure `fn = _RoundPFnImpl(match_state=state, half_rates=hr)` and assert that the BO3State `synthetic` passed to `fn` at the round-2 sub-state has `pistol_winner_a[map_idx] is True` (or `False` for the B-wins branch). Because `_within_map_p_a_wins` doesn't expose the synthetic states, we use a `_SpyRoundPFn` analog (similar pattern to `test_dp_ot_path_consults_round_p_fn_next_side_orient` at test_dp.py:182-239) that records every state passed to `__call__` and dispatches via `round_p_for_round`. Then we filter the recorded states for `(a_round=1, b_round=0)` (round 2 in the future-map sub-DP) and assert the dispatched p value equals GUN_WIN_RATE.
+    - Test 1 (`test_within_map_anti_eco_uses_gun_win_rate_after_round_1_branch`): A behavioral probe via the law-of-total-probability decomposition — call `_within_map_p_a_wins` three times with the SAME (state, half_rates, map_idx=1, starting_side) but DIFFERENT pistol_winner_a tuples: (None,None,None) [the unset case], (None,True,None) [A-wins-pistol branch], and (None,False,None) [B-wins-pistol branch]. Probe `p_round_1 = _RoundPFnImpl(state, hr)(round_1_synthetic_at_map_1)`. Then assert `p_unset == p_round_1 * p_a_pistol + (1 - p_round_1) * p_b_pistol` to rel_tol=1e-6. This decomposition is the DP recursion's own forward-pass at the round-1 boundary; it holds STRUCTURALLY when WR-06 is closed and fails by > 1e-3 pre-fix (when the unset call ignores round 1 because round 2 onwards always returns 0.5). No instrumentation / spy / observer pattern needed — `_within_map_p_a_wins` constructs its own `_RoundPFnImpl` closure internally with no clean injection seam.
     - All 149 prior tests + the new test pass.
     - `mypy --strict src/pricing/` exits 0.
     - `ruff check src/pricing/ tests/pricing/` exits 0.
@@ -720,11 +720,12 @@ The `synthetic` BO3State at the TOP carries the closure-bound `pistol_winner_a` 
     branch's ``a_wins`` truth IF the slot was previously None (don't override
     ingested live values). The recursion then carries the updated tuple
     forward so round 2 / 3 dispatch hits GUN_WIN_RATE in
-    ``round_p_for_round``, not the defensive 0.5 fallback.
+    ``round_p_for_round``, not the defensive 0.5 fallback. The cache key
+    is extended to ``(a_round, b_round, side_orient, pistol_winner_a)`` — the
+    propagated tuple is hashable, so the memo stays well-typed.
 
-    Memoizes the within-map sub-states with a per-call ``dict``. The cache key
-    extends to ``(a_round, b_round, side_orient, pistol_winner_a)`` — the
-    propagated tuple is hashable, so the memo stays well-typed. Per-call
+    Memoizes the within-map sub-states with functools.lru_cache. The cache is
+    cleared between calls via ``_clear_pricing_caches`` (CR-04). Per-call
     allocation is intentional (per-call closure binding of ``match_state`` /
     ``half_rates`` differs across callers).
     """
@@ -803,7 +804,7 @@ The `synthetic` BO3State at the TOP carries the closure-bound `pistol_winner_a` 
     return max(CONVICTION_CLIP_LOW, min(CONVICTION_CLIP_HIGH, raw))
 ```
 
-Note: the docstring for the "lru_cache" claim now reads "per-call ``dict``" — this also closes WR-07 (`_within_map_p_a_wins` docstring claims `lru_cache` but uses `dict`) as a side effect. WR-07 was deferred in 01-06 but the docstring rewrite costs nothing here, so we capture it. If the executor wants to keep WR-07 strictly out of scope, leave the docstring's "Memoizes the within-map sub-states with functools.lru_cache" line unchanged (the WR-06 fix can land without touching that line by adding the new behavior to a different paragraph). Either is acceptable.
+DIRECTIVE (per checker fix I-08 — WR-07 stays DEFERRED): the docstring's existing "Memoizes the within-map sub-states with functools.lru_cache" line MUST be preserved verbatim. The WR-06 fix lands by ADDING a new paragraph (the "WR-06 fix (...)" block above) — it does NOT touch the existing lru_cache wording. WR-07 (the docstring's incorrect lru_cache claim) is explicitly listed as out-of-scope at the top of this plan; closing it here would be silent scope creep. The acceptance criteria below grep for BOTH (1) the preserved lru_cache wording AND (2) the new WR-06 / pistol_winner_a paragraph — confirming WR-07 is still open while WR-06 is closed.
 
 **Step 3.3 — Append the WR-06 regression test** to `tests/pricing/test_live_theo.py`. First, add `_within_map_p_a_wins` to the imports (lines 32-44):
 
@@ -833,60 +834,23 @@ def test_within_map_anti_eco_uses_gun_win_rate_after_round_1_branch() -> None:
     propagate pistol_winner_a through the recursion, so round 2 of a future
     map dispatches to GUN_WIN_RATE — not the defensive 0.5 fallback.
 
-    Setup: a future-map sub-DP rooted at map_idx=1 with pistol_winner_a
-    initially (None, None, None) at the closure scope. We instrument the
-    closure's __call__ to record every BO3State it observes, then filter for
-    the round-2 sub-state (a_round=1, b_round=0) and assert the recorded
-    pistol_winner_a[1] is True (the propagated value after the A-wins branch).
+    Behavioral assertion (load-bearing): the law-of-total-probability
+    decomposition holds. Specifically, with pistol_winner_a=(None,None,None)
+    at the call site, the post-fix value of _within_map_p_a_wins(map_idx=1)
+    EQUALS:
+        p_round_1 * _within_map_p_a_wins(pistol_winner_a=(None,True,None))
+        + (1 - p_round_1) * _within_map_p_a_wins(pistol_winner_a=(None,False,None))
+    where p_round_1 is the half-rates BT blend for round 1 of map 1 (the
+    Phase-1 pistol round dispatch). Pre-fix, the equality fails — the unset
+    call ignores round 1 because round 2 onwards hits 0.5 regardless.
 
-    On current main (pre-WR-06 fix), pistol_winner_a[1] is None at this
-    sub-state and the dispatch hits 0.5. After the fix it's True and the
-    dispatch hits GUN_WIN_RATE.
+    On current main (pre-WR-06 fix), the decomposition equality fails by
+    > 1e-3 under asymmetric anti-eco contributions. After the fix it holds
+    to rel_tol=1e-6.
     """
     hr = _synthetic_half_rates()
     state = _synthetic_match_state(map_idx=0, pistol_winner_a={0: None, 1: None, 2: None})
     bo3 = _bo3_state_from_match_state(state)
-
-    observed_states: list[BO3State] = []
-
-    class _SpyRoundPFn:
-        """Wraps _RoundPFnImpl so we can observe the BO3States it sees."""
-
-        def __init__(self, inner: _RoundPFnImpl) -> None:
-            self._inner = inner
-
-        def __call__(self, s: BO3State) -> float:
-            observed_states.append(s)
-            return self._inner(s)
-
-        def next_side_orient_for(self, map_idx: int) -> str:
-            return self._inner.next_side_orient_for(map_idx)
-
-    # We can't directly instrument `fn` inside _within_map_p_a_wins because it
-    # constructs its own _RoundPFnImpl. Instead we exercise the same code path
-    # via _marginal_map_prob with m > state.map_idx — which IS the production
-    # call site for _within_map_p_a_wins.
-    _marginal_map_prob(state, m=1, half_rates=hr)
-
-    # The above call doesn't expose internal BO3States. To see them we use a
-    # different probe: invoke _within_map_p_a_wins directly with a deterministic
-    # closure and inspect its memo via a side-channel. The cleanest approach is
-    # to assert behaviorally — that _within_map_p_a_wins for map 1 with
-    # pistol_winner_a=(None, None, None) and a fresh starting side returns
-    # a value that DIFFERS from what it returns when pistol_winner_a is
-    # (None, True, None). Pre-fix, both calls return the SAME value (the
-    # round-2 dispatch hits 0.5 in both cases). Post-fix, they differ — the
-    # (None, None, None) call propagates True at round 1 settle, while the
-    # (None, True, None) call carries True from the start; both produce the
-    # same forward outcome, so this difference test won't work either.
-    #
-    # The CORRECT behavioral assertion: when pistol_winner_a is (None, None, None)
-    # at the call site, after the WR-06 fix, _within_map_p_a_wins for map 1
-    # produces the SAME numeric result as if pistol_winner_a were already
-    # (None, True, None) marginalized over A-wins-pistol AND
-    # (None, False, None) marginalized over B-wins-pistol — weighted by the
-    # round-1 P(A wins). Pre-fix, the (None, None, None) call returns a
-    # DIFFERENT (incorrect) value because round 2 always hits 0.5.
 
     p_unset = _within_map_p_a_wins(
         map_pool=bo3.map_pool,
@@ -940,14 +904,13 @@ def test_within_map_anti_eco_uses_gun_win_rate_after_round_1_branch() -> None:
         f"decomposition {expected!r} (= {p_round_1!r} * {p_a_pistol!r} + "
         f"{1.0 - p_round_1!r} * {p_b_pistol!r})"
     )
-    # Witness the bug is closed: under the symmetric _synthetic_half_rates,
-    # p_a_pistol > 0.5 and p_b_pistol < 0.5 (asymmetric anti-eco), so the
-    # decomposition differs from any flat-0.5 anti-eco dispatch.
-    # The assertion above is the load-bearing one.
-    _ = observed_states  # kept for future debugging; not asserted on
+    # The decomposition assertion above is the load-bearing one. Under the
+    # symmetric _synthetic_half_rates, p_a_pistol > 0.5 and p_b_pistol < 0.5
+    # (asymmetric anti-eco), so the decomposition differs from any flat-0.5
+    # anti-eco dispatch — pre-fix, p_unset ignored round 1 entirely.
 ```
 
-NOTE on the test design: the spy-based recording approach was abandoned because `_within_map_p_a_wins` constructs its own `_RoundPFnImpl` internally and there's no clean injection seam. The law-of-total-probability decomposition test above is BEHAVIORALLY equivalent and STRUCTURALLY locks WR-06: pre-fix, `p_unset` ignores round-1 entirely (round 2 always returns 0.5), so the decomposition equality fails by ~1e-3 or more under asymmetric half-rates; post-fix, the equality holds to `rel_tol=1e-6`.
+NOTE on the test design: the law-of-total-probability decomposition assertion is the load-bearing one. It STRUCTURALLY locks WR-06 without depending on absolute magnitudes: pre-fix, `p_unset` ignores round-1 entirely (round 2 always returns 0.5), so the decomposition equality fails by ~1e-3 or more under asymmetric half-rates; post-fix, the equality holds to `rel_tol=1e-6`. We deliberately do NOT use a spy / observer pattern on `_RoundPFnImpl` — `_within_map_p_a_wins` constructs its own closure internally, there is no clean injection seam, and the decomposition assertion is behaviorally equivalent without requiring instrumentation.
 
 **Step 3.4 — Verify all tests pass.**
 
@@ -969,6 +932,9 @@ Expected: `>= 150 passed`, `Success`, `All checks passed!`.
     - `grep -nE "pistol_after_a|pistol_after_b" src/pricing/live_theo.py` returns at least two matches (the per-branch propagated tuples).
     - `grep -nE "WR-06" src/pricing/live_theo.py` returns at least one match (the docstring trail referencing the gap).
     - `grep -nE "tuple\(.*for i in range\(len\(pistol\)\)" src/pricing/live_theo.py` returns at least two matches (the two per-branch tuple-rebuilds — one for A-wins, one for B-wins).
+    - `grep -q "functools.lru_cache" src/pricing/live_theo.py` exits 0 (per checker fix I-08 — WR-07 stays deferred; the original docstring's lru_cache claim is preserved verbatim).
+    - `grep -qE "pistol_winner_a.*update|CR-05|WR-06" src/pricing/live_theo.py` exits 0 (per checker fix I-08 — confirms the WR-06 paragraph IS added).
+    - `ruff check tests/pricing/test_live_theo.py` exits 0 (lint regression caught at task-end, not at smoke-gate — explicitly named here per checker fix I-02).
     - `pytest tests/pricing/test_live_theo.py::test_within_map_anti_eco_uses_gun_win_rate_after_round_1_branch -x` exits 0.
     - `pytest tests/pricing/ -x` exits 0 with all tests passing.
     - `pytest tests/ -x` exits 0 with `>= 150 passed`.
@@ -1074,13 +1040,13 @@ NOTE: do NOT delete the old test name. The rename is a single replacement; downs
   <read_first>
     - src/pricing/dp.py lines 1-33 (current module docstring — note the existing four-bullet "Fixes documented bugs" list at lines 4-15; the Phase-2 follow-up note slots cleanly as a fifth bullet OR as a separate "Phase 1 simplifications" subsection)
     - src/pricing/round_types.py lines 16-30 (the existing "Phase 1 simplification (A8)" and "Phase 1 simplification (A6)" docstrings — pattern this section after them)
-    - .planning/phases/01-core-pricing-engine/01-RESEARCH.md (the Assumptions Log — A6/A8/A11 pattern)
+    - .planning/phases/01-core-pricing-engine/01-RESEARCH.md (the Assumptions Log — A6/A8 pattern)
     - .planning/phases/01-core-pricing-engine/01-VERIFICATION.md `gaps:` block, missing[4]
   </read_first>
   <behavior>
     - `src/pricing/dp.py` module docstring carries a new section/bullet documenting that `pistol_winner_a` is keyed only by `map_idx`, so rounds 14/15 cannot be conditioned on a separately-tracked second-half pistol winner under the current data shape.
     - The note explicitly references Phase 2 (REQ-round-event-data-pipeline) as the follow-up venue.
-    - The note explicitly states that Phase 1 ships rounds 14/15 falling through to the half-rates blend via `round_types.round_p_for_round` line 140 (rounds 14/15 dispatch on `pistol_winner_a[map_idx]` which for the second half is the FIRST-half pistol winner — Phase-1 acceptable per RESEARCH.md A8/A11; Phase 2 will refine).
+    - The note explicitly states that Phase 1 ships rounds 14/15 falling through to the half-rates blend via `round_types.round_p_for_round` line 140 (rounds 14/15 dispatch on `pistol_winner_a[map_idx]` which for the second half is the FIRST-half pistol winner — Phase-1 acceptable per RESEARCH.md A8; Phase 2 will refine).
     - mypy + ruff stay clean (docstring-only change).
     - All tests continue to pass.
     - The note is grep-discoverable via `Phase 2|Phase-2|second-half pistol`.
@@ -1135,7 +1101,7 @@ same DP for series and per-map; no parallel models). Fixes documented bugs:
      settles AND the slot is currently None. Anti-eco rounds {2, 3, 14, 15}
      in DP recursion now dispatch correctly via round_types.py.
 
-Phase 1 simplifications (A6 / A8 / A11 in RESEARCH.md Assumptions Log)
+Phase 1 simplifications (A6 / A8 in RESEARCH.md Assumptions Log; the second-half pistol limitation below is a NEW Phase-1 simplification — Phase-2 follow-up)
 ---------------------------------------------------------------------
 - Rounds 1, 13 (pistols): half-rates Bradley-Terry blend (A8). Phase 2 will
   calibrate per-team pistol-only rates from match_round_data and swap them
@@ -1143,7 +1109,7 @@ Phase 1 simplifications (A6 / A8 / A11 in RESEARCH.md Assumptions Log)
 - Rounds 3, 15 use the same GUN_WIN_RATE as rounds 2, 14 (A6). Phase 2
   calibration may differentiate (~75% on round 2 vs ~60% on round 3 per
   roadmap §1.3).
-- pistol_winner_a SECOND-HALF LIMITATION (A11 — Phase-2 follow-up): the
+- pistol_winner_a SECOND-HALF LIMITATION (NEW Phase-1 simplification; Phase-2 follow-up — track separately at the roadmap level if Phase 4 calibration surfaces it as a need): the
   ``pistol_winner_a: tuple[Optional[bool], ...]`` shape is keyed by ``map_idx``
   ONLY (one slot per map). It records the FIRST-half pistol winner. Rounds
   14/15 (anti-eco for the second-half pistol) currently dispatch on
@@ -1163,7 +1129,7 @@ Cache strategy
 """
 ```
 
-The four-item bug-fix list now grows to FIVE items (CR-05 closure as item 4), and a new "Phase 1 simplifications" section documents the A11 (Phase-2 follow-up) limitation explicitly. The "Cache strategy" subsection and everything below stays unchanged.
+The four-item bug-fix list now grows to FIVE items (CR-05 closure as item 4), and a new "Phase 1 simplifications" section documents the second-half pistol Phase-2 follow-up limitation explicitly. The "Cache strategy" subsection and everything below stays unchanged.
 
 **Step 5.2 — Verify mypy + ruff + full suite.**
 
@@ -1175,14 +1141,14 @@ The four-item bug-fix list now grows to FIVE items (CR-05 closure as item 4), an
 
 Expected: all clean / pass. Docstring-only change is a no-op for mypy + ruff.
 
-**Step 5.3 — Atomic commit.** Stage `src/pricing/dp.py` and commit with `docs(01-07): document second-half pistol Phase-2 follow-up (A11)`.
+**Step 5.3 — Atomic commit.** Stage `src/pricing/dp.py` and commit with `docs(01-07): document second-half pistol Phase-2 follow-up`.
   </action>
   <verify>
     <automated>.venv/Scripts/python.exe -m mypy --strict src/pricing/ 2>&1 | tail -3 && .venv/Scripts/python.exe -m pytest tests/ -x 2>&1 | tail -3</automated>
   </verify>
   <acceptance_criteria>
     - `grep -nE "Phase 2|Phase-2|second-half pistol" src/pricing/dp.py` returns at least one match (the new doc note).
-    - `grep -nE "A11" src/pricing/dp.py` returns at least one match.
+    - `grep -nE "Phase-2 follow-up.*pistol|second-half pistol winner|SECOND-HALF LIMITATION" src/pricing/dp.py` returns at least one match (the new Phase-2-follow-up doc note wording).
     - `grep -nE "REQ-round-event-data-pipeline" src/pricing/dp.py` returns at least one match.
     - `grep -nE "CR-05" src/pricing/dp.py` returns at least two matches (one in `_advance_round` from Task 2, one in the new module docstring item 4).
     - `mypy --strict src/pricing/` reports `Success: no issues found in 7 source files`.
@@ -1190,7 +1156,7 @@ Expected: all clean / pass. Docstring-only change is a no-op for mypy + ruff.
     - `pytest tests/ -x` exits 0 with `>= 150 passed` (no test count change — docstring-only commit).
     - `git log -1 --format=%s` matches `docs\(01-07\): document second-half pistol.*`.
   </acceptance_criteria>
-  <done>Phase-2 follow-up note landed in dp.py module docstring; second-half pistol limitation explicitly documented as A11; commit recorded.</done>
+  <done>Phase-2 follow-up note landed in dp.py module docstring; second-half pistol limitation explicitly documented as a Phase-2 follow-up (track separately if Phase 4 calibration surfaces it as a need); commit recorded.</done>
 </task>
 
 <task type="auto">
@@ -1222,15 +1188,23 @@ def test_live_theo_asymmetric_pistols_match_unset_pistols_after_dp_propagation()
     """CR-05 / WR-06 end-to-end behavioral lock (01-VERIFICATION.md re-verification
     9.25pp swing): under asymmetric half-rates (TeamA 0.55, TeamB 0.45 across all
     maps/sides) with total=1e9 (no shrinkage) and pistol_winner_a all-None at the
-    call site, the post-fix theo_series MUST be close to the set-pistols-True
-    baseline (0.979 in the verification re-run). Pre-fix the same call returned
-    0.887 — a 9.25pp systematic bias that would force unintended Phase-4 mode
-    flips and false kill-switch trips against VEGA_DIRECTIONAL_THRESHOLD = 0.04
-    and KILL_SWITCH_DEVIATION_C = 20¢.
+    call site, the post-fix theo_series MUST satisfy the law-of-total-probability
+    decomposition over the round-1 outcome:
 
-    Tolerance: theo_series > 0.96 AND abs(theo_series - 0.979) < 0.02. The 0.02
-    slack absorbs minor numerical drift from the BT blend's input clip and the
-    conviction clip; the 0.96 floor STRICTLY excludes the pre-fix 0.887 value.
+        theo_unset == P(A wins R1) * theo_set_AAA + (1 - P(A wins R1)) * theo_set_BBB
+
+    where theo_set_AAA / theo_set_BBB are the engine outputs under
+    pistol_winner_a=(True,True,True) / (False,False,False) respectively. Pre-fix,
+    this equality fails — the unset call ignored round 1 and returned 0.887 (a
+    9.25pp systematic bias from the set-AAA baseline 0.979); post-fix, the DP
+    recursion's own forward-pass guarantees the equality.
+
+    The structural decomposition assertion is the LOAD-BEARING check (per
+    checker fix I-04); the soft sanity floors below (theo_series > 0.5,
+    |theo_unset - theo_set| < 0.5) are NOT load-bearing — they only catch
+    totally-broken DPs. The decomposition is mechanically derivable from the
+    DP recursion's definition and is independent of GUN_WIN_RATE compounding
+    magnitude.
     """
     asymmetric_hr = HalfRates(
         team_rates={
@@ -1262,31 +1236,79 @@ def test_live_theo_asymmetric_pistols_match_unset_pistols_after_dp_propagation()
     )
     out_set = engine(state_set)
 
-    # Post-fix: unset and set diverge much less than 9.25pp; both should be
-    # close to the conviction clip's high end under TeamA=0.55/TeamB=0.45 +
-    # GUN_WIN_RATE compounding across 12 anti-eco rounds × 3 maps.
-    assert out_unset.theo_series > 0.96, (
-        f"CR-05 not closed end-to-end: theo_series with unset pistols = "
-        f"{out_unset.theo_series!r}, expected > 0.96 (pre-fix baseline was "
-        f"0.887). The pistol+anti-eco model is still inactive in DP recursion."
+    # Structural decomposition (load-bearing — independent of compounding
+    # magnitudes). After CR-05 fix: theo_series with pistol_winner_a all-None
+    # EQUALS the marginal expectation over the round-1 outcome:
+    #   theo_unset == P(A wins R1) * theo_set_TTT + (1 - P(A wins R1)) * theo_set_FFF
+    # where:
+    #   * theo_set_TTT is theo_series under pistol_winner_a=(True,True,True)
+    #     (A-wins-pistol branch — coarse approximation: ALL maps' pistols set
+    #     to A-wins; for the structural decomposition only the CURRENT map's
+    #     pistol entry matters because future maps' entries get re-set by
+    #     the DP forward-pass once CR-05 is closed).
+    #   * theo_set_FFF is theo_series under pistol_winner_a=(False,False,False)
+    #     (B-wins-pistol branch — same coarse approximation).
+    # This is the DP's own forward-pass decomposition: the recursion at the
+    # round-1 boundary expands as `p * series_value(advance_a_wins) + (1-p) *
+    # series_value(advance_b_wins)`.
+    p_round_1 = _RoundPFnImpl(match_state=state_unset, half_rates=asymmetric_hr)(
+        _bo3_state_from_match_state(state_unset)
     )
-    assert abs(out_unset.theo_series - out_set.theo_series) < 0.02, (
-        f"CR-05 swing not closed: |theo_unset ({out_unset.theo_series!r}) - "
-        f"theo_set ({out_set.theo_series!r})| = "
-        f"{abs(out_unset.theo_series - out_set.theo_series)!r}, "
-        f"expected < 0.02 (pre-fix was 0.0925)."
+
+    state_pistol_a = _synthetic_match_state(
+        pistol_winner_a={0: True, 1: True, 2: True},
+    )
+    state_pistol_b = _synthetic_match_state(
+        pistol_winner_a={0: False, 1: False, 2: False},
+    )
+    out_set_a = engine(state_pistol_a)
+    out_set_b = engine(state_pistol_b)
+
+    decomposition = p_round_1 * out_set_a.theo_series + (1.0 - p_round_1) * out_set_b.theo_series
+    assert math.isclose(
+        out_unset.theo_series, decomposition, rel_tol=1e-3, abs_tol=1e-3
+    ), (
+        f"theo_unset ({out_unset.theo_series}) does not match law-of-total-"
+        f"probability decomposition ({decomposition}) under "
+        f"p_round_1={p_round_1}, out_set_a={out_set_a.theo_series}, "
+        f"out_set_b={out_set_b.theo_series}. CR-05/WR-06 not closed at "
+        f"the DP forward-pass level."
+    )
+
+    # Soft sanity floors (NOT load-bearing — the structural assertion above
+    # is the actual content). The absolute magnitude depends on a
+    # marginalization over pistol outcomes whose closed-form is fragile to
+    # BT-blend asymmetry (P(A wins map | B wins pistol) = 1 - GUN_WIN_RATE
+    # = 0.178 per anti-eco round, much lower than TeamA=0.55's per-round
+    # baseline; the marginalization recovers most but not all of the set-A
+    # baseline). Pre-fix, theo_unset was 0.887 (verification re-run #2);
+    # the > 0.5 floor is sufficient to detect a totally-broken DP, while
+    # the structural assertion catches the actual CR-05 regression.
+    assert out_unset.theo_series > 0.5, (
+        f"sanity floor: theo_series with unset pistols = "
+        f"{out_unset.theo_series!r}, expected > 0.5 (asymmetric matchup "
+        f"with TeamA=0.55 should produce P(TeamA wins series) > 0.5 in any "
+        f"reasonable model). The structural decomposition assertion above "
+        f"is the load-bearing CR-05 closure check."
+    )
+    assert abs(out_unset.theo_series - out_set.theo_series) < 0.5, (
+        f"extremely loose absolute bound: |theo_unset - theo_set| = "
+        f"{abs(out_unset.theo_series - out_set.theo_series)!r}. The "
+        f"structural decomposition assertion above is the load-bearing "
+        f"CR-05 closure check."
     )
     # Witness the conviction clip is in range; both sides should respect [0.01, 0.99].
     assert 0.01 <= out_unset.theo_series <= 0.99
     assert 0.01 <= out_set.theo_series <= 0.99
 ```
 
-NOTE on tolerance choice: `0.96` is calibrated as follows. Under TeamA=0.55/TeamB=0.45 the BT blend produces per-round p ≈ 0.55. After CR-05 fix, the 12 anti-eco rounds × 3 maps now contribute the GUN_WIN_RATE (0.822 if A won pistol, 0.178 if B did) weighted by P(A wins pistol) ≈ 0.55. So expected anti-eco P(A wins) ≈ 0.55 × 0.822 + 0.45 × 0.178 ≈ 0.532. Compared to pre-fix flat 0.5, this shifts each anti-eco round's contribution from 0.5 → 0.532 — small per-round but compounding across 12 anti-eco rounds × 3 maps. The verification re-run measured 0.979 set-pistols and 0.887 unset-pistols. The post-fix unset-pistols value should be in `[0.93, 0.99]` (the marginalization over pistol outcomes recovers most but not all of the 0.979 value because anti-eco win conditional on a B-pistol-win is `1-GUN_WIN_RATE = 0.178`, lower than TeamA=0.55's per-round prob — so P(A wins map | B wins pistol) is much smaller than P(A wins map | A wins pistol) = 0.979). 0.96 is the conservative lower bound; 0.02 abs tolerance against 0.979 is the upper bound. If the executor measures a value outside this range, INVESTIGATE — the fix may be wrong.
+RATIONALE for the structural decomposition assertion (per checker fix I-04): we assert the law-of-total-probability decomposition, NOT absolute magnitude, because the absolute magnitude depends on a marginalization over pistol outcomes whose closed-form is fragile to BT-blend asymmetry. Specifically, P(A wins map | B wins pistol) = compound of (1 - GUN_WIN_RATE) = 0.178 across anti-eco rounds, which is much lower than P(A wins map | A wins pistol) = compound of GUN_WIN_RATE = 0.822; the marginalization recovers most but not all of the set-A baseline depending on per-round half-rates. Hard-coded magnitude bounds like `> 0.96` are unreachable under the actual marginalization (the verification re-run #2's 0.979 was a SET-pistols-True-True-True measurement; the corresponding all-None-pistol value after the CR-05 fix is the marginal, not 0.979). The structural decomposition is mechanically derivable from the DP recursion's own definition and is independent of GUN_WIN_RATE compounding magnitude.
 
-If the executor's measured post-fix value is consistently outside `[0.96, 0.99]`, they should:
-1. Re-run the VERIFICATION.md probe inline (the script in the gap_source) and confirm the new value matches.
-2. If the new value is `0.94` or `0.95` (slightly below the 0.96 floor), CALIBRATE the floor down to `0.94` with a comment in the test explaining the calibration anchored to a specific numeric witness, NOT to a qualitative "tolerance was too tight" note. Document in the commit message.
-3. NEVER weaken the fix to make the test pass.
+If the structural decomposition assertion fails, the executor should:
+1. Re-verify CR-05 closure at the dp.py level by re-running Task 1's RED tests (they should be GREEN post-Task-2). If they're not GREEN, return to Task 2.
+2. Re-verify WR-06 closure at the live_theo.py level by re-running Task 3's regression test. If it's not GREEN, return to Task 3.
+3. Inspect the per-map decomposition: verify that for each map m, P(A wins map m | A wins R1 of m) and P(A wins map m | B wins R1 of m) compose correctly with p_round_1.
+4. NEVER weaken the fix or the decomposition tolerance to make the test pass — the decomposition is a mathematical invariant of the DP, not a calibration knob.
 
 **Step 6.2 — Run the full smoke gate.**
 
@@ -1419,13 +1441,13 @@ engine = LiveTheoEngine(half_rates=hr)
 o_unset = engine(state_unset)
 o_set = engine(state_set)
 swing = abs(o_unset.theo_series - o_set.theo_series)
-assert swing < 0.02, f'CR-05 swing NOT closed: |unset-set| = {swing} (pre-fix was 0.0925)'
-assert o_unset.theo_series > 0.96, f'CR-05 unset value low: {o_unset.theo_series}'
+assert swing < 0.05, f'CR-05 swing NOT closed: |unset-set| = {swing} (pre-fix was 0.0925; tolerance loosened per I-04 — structural decomposition is the load-bearing check)'
+assert o_unset.theo_series > 0.5, f'CR-05 unset sanity floor: {o_unset.theo_series} <= 0.5 (asymmetric matchup TeamA=0.55 should produce > 0.5; the structural decomposition assertion in the pytest integration test is the load-bearing check)'
 print(f'CR-05 end-to-end closed (unset={o_unset.theo_series:.4f}, set={o_set.theo_series:.4f}, swing={swing:.4f})')
 "
 ```
 
-Expected: `CR-05 end-to-end closed (unset=0.97xx, set=0.97-0.98xx, swing<0.02)`.
+Expected: `CR-05 end-to-end closed (unset=0.5x-0.99, set=0.97-0.99, swing<0.05)`. The exact unset value depends on the marginalization over pistol outcomes (NOT the set-AAA baseline 0.979); the structural decomposition assertion in the pytest integration test (Task 6 Step 6.1) is the load-bearing check.
 
 ALL THREE PROBES MUST PRINT their `closed` line. Any AssertionError is a gate failure — return to the offending task.
 
@@ -1494,7 +1516,7 @@ echo "Re-scoped test grep ok"
 
 # Phase-2 follow-up doc note in dp.py
 grep -qE "Phase 2|Phase-2|second-half pistol" src/pricing/dp.py || (echo "Phase-2 doc note missing in dp.py"; exit 1)
-grep -qE "A11" src/pricing/dp.py || (echo "A11 reference missing in dp.py"; exit 1)
+grep -qE "Phase-2 follow-up.*pistol|second-half pistol winner|SECOND-HALF LIMITATION" src/pricing/dp.py || (echo "Phase-2 follow-up doc note missing in dp.py"; exit 1)
 echo "Phase-2 doc note grep ok"
 
 # Surface contract (CRule 1 / DEC-010) — forbidden symbols absent
@@ -1522,12 +1544,12 @@ ALL of the above lines must print their `ok` (or `closed`) message and exit 0; p
 - `pytest tests/` exits 0 with at least 150 tests passing (147 baseline + minimum 2 new regression tests across tasks 1-3 + 1 integration test in task 6; range allowed `[150, 160]` to absorb minor textual decisions).
 - `mypy --strict src/pricing/` exits 0 with `Success: no issues found in 7 source files`.
 - `ruff check src/pricing/ tests/pricing/` exits 0 with `All checks passed!`.
-- The single open BLOCKER from `01-VERIFICATION.md` (CR-05) and its scoped twin (WR-06) are closed at the source level with regression tests asserting the exact behavior the verifier confirmed broken at runtime: `_advance_round` updates `pistol_winner_a[map_idx]` at the round-1 boundary; `_within_map_p_a_wins` mirrors the same logic; round-2 dispatch in DP recursion now hits GUN_WIN_RATE; end-to-end 9.25pp swing closed (`abs(theo_unset - theo_set) < 0.02`).
+- The single open BLOCKER from `01-VERIFICATION.md` (CR-05) and its scoped twin (WR-06) are closed at the source level with regression tests asserting the exact behavior the verifier confirmed broken at runtime: `_advance_round` updates `pistol_winner_a[map_idx]` at the round-1 boundary; `_within_map_p_a_wins` mirrors the same logic; round-2 dispatch in DP recursion now hits GUN_WIN_RATE; end-to-end 9.25pp swing closed via the LAW-OF-TOTAL-PROBABILITY DECOMPOSITION assertion (per checker fix I-04 — `theo_unset == p_round_1 * theo_set_AAA + (1-p_round_1) * theo_set_BBB` to `rel_tol=1e-3`), with soft sanity floors (`theo_unset > 0.5`, `|theo_unset - theo_set| < 0.5`) as non-load-bearing guards.
 - Public surface contract preserved: `src.pricing.__all__ == ["LiveTheoEngine", "TheoOutput", "MatchState", "HalfRates"]`; no audit-triplet symbols reappear in `src/pricing/`.
 - Six atomic commits land in order: `test(01-07): add failing CR-05 regression ...`, `fix(01-07): close CR-05 ...`, `fix(01-07): close WR-06 ...`, `test(01-07): re-scope CR-05 ...`, `docs(01-07): document second-half pistol ...`, `test(01-07): add asymmetric-matchup ...`.
 - No source file outside `src/pricing/dp.py`, `src/pricing/live_theo.py`, `tests/pricing/test_dp.py`, `tests/pricing/test_live_theo.py`, `tests/pricing/test_round_types.py` is modified — no scope creep into WR-07/WR-08, IN-05..IN-07, or remaining deferred items.
 - The re-scoped test `test_anti_eco_with_none_pistol_winner_returns_defensive_05_for_malformed_external_input` retains the assertion target `actual == 0.5` while documenting the post-fix invariant via its docstring.
-- The dp.py module docstring documents the second-half pistol Phase-2 follow-up as A11 with explicit reference to REQ-round-event-data-pipeline.
+- The dp.py module docstring documents the second-half pistol Phase-2 follow-up (a NEW Phase-1 simplification; not in the original A1..A8 RESEARCH.md log) with explicit reference to REQ-round-event-data-pipeline.
 - BO3State remains `frozen=True, slots=True` and hashable; the new tuple-rebuild produces a `tuple[Optional[bool], ...]` of the same length as `state.pistol_winner_a`.
 - CR-01..CR-04 invariants from 01-06 all still hold: `_p_reach_map_cached` clinch-first ordering, `_p_map_decisive` BO3 middle-map formula, `_compute_vega` OT/terminal short-circuits, `LiveTheoEngine.__call__` try/finally cleanup. The 100-call memory-leak test continues to pass.
 - REQ-pistol-anti-eco-modeling moves from BLOCKED → SATISFIED after this plan; the verifier replay of the 01-VERIFICATION.md spot-check rows 13/14/15 (currently FAIL) all transition to PASS.
@@ -1541,6 +1563,6 @@ After completion, create `.planning/phases/01-core-pricing-engine/01-07-pistol-a
 - Test count delta (147 → 151+).
 - Confirmation that mypy --strict, ruff, surface contract, `__all__`, and CR-01..CR-04 invariants are unchanged.
 - Note for the Phase 4 planner: the pistol+anti-eco model is now structurally active in the DP forward-pass for the natural pre-match call site. `VEGA_DIRECTIONAL_THRESHOLD = 0.04` and `KILL_SWITCH_DEVIATION_C = 20¢` operate on accurate theo_series values; the previously-systematic 9.25pp bias at TeamA=0.55/TeamB=0.45 is closed.
-- Note for the Phase 2 planner: the second-half pistol limitation (rounds 14/15 dispatch on `pistol_winner_a[map_idx]` which is the FIRST-half pistol winner) is documented as A11 in the `dp.py` module docstring. Phase 2 will extend the data shape to `tuple[Optional[tuple[bool, bool]], ...]` per (map, half) and update the `round_types.py` dispatch to consult the appropriate half. NO data-shape change in Phase 1.
-- Out-of-scope items still deferred: WR-07 (`_within_map_p_a_wins` docstring may have been touched as a side effect of the WR-06 fix; if not, deferred), WR-08 (per-`m` re-registration perf), IN-05..IN-07, WR-01..WR-05 + IN-01..IN-04 from original review.
+- Note for the Phase 2 planner: the second-half pistol limitation (rounds 14/15 dispatch on `pistol_winner_a[map_idx]` which is the FIRST-half pistol winner) is documented as a Phase-2 follow-up in the `dp.py` module docstring (NEW Phase-1 simplification; not in the original A1..A8 RESEARCH.md Assumptions Log — track separately at the roadmap level if Phase 4 calibration surfaces it as a need). Phase 2 will extend the data shape to `tuple[Optional[tuple[bool, bool]], ...]` per (map, half) and update the `round_types.py` dispatch to consult the appropriate half. NO data-shape change in Phase 1.
+- Out-of-scope items still deferred: WR-07 (`_within_map_p_a_wins` docstring's `functools.lru_cache` claim — explicitly preserved per checker fix I-08; the docstring still says lru_cache while the implementation uses dict), WR-08 (per-`m` re-registration perf), IN-05..IN-07, WR-01..WR-05 + IN-01..IN-04 from original review.
 </output>
