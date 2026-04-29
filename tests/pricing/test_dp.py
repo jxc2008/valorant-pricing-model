@@ -13,7 +13,9 @@ Verifies acceptance criteria from roadmap §1.1, §1.4, §5.1:
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -21,11 +23,14 @@ from hypothesis import strategies as st
 # Importing the salvage closed form via reference/ — confirm reference is on
 # sys.path (Phase 0 pyproject.toml `[tool.hatch.build] sources` includes it).
 from reference.fair_value import _bo3_series_prob
+from src.config.constants import GUN_WIN_RATE
 from src.pricing.dp import (
     BO3State,
+    _advance_round,
     _series_value_cached,
     series_value,
 )
+from src.pricing.round_types import round_p_for_round
 
 # --------------------------------------------------------------------------- #
 # Test helpers — RoundPFn closures with explicit side-orient accessors        #
@@ -64,6 +69,38 @@ def _root() -> BO3State:
         map_pool=("Lotus", "Bind", "Haven"),
         pistol_winner_a=(None, None, None),
     )
+
+
+# --------------------------------------------------------------------------- #
+# Test fixtures for the round_p_for_round dispatch (CR-05 regression)         #
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class _FakeMatchState:
+    """Minimal MatchState shape required by round_p_for_round.
+
+    The anti-eco branch in round_types.round_p_for_round (lines 146-153) does
+    not read MatchState.team_a/team_b, but the gunround/pistol branches do. We
+    only need anti-eco coverage for CR-05, but keep team_a/team_b for safety.
+    """
+
+    team_a: str = "TeamA"
+    team_b: str = "TeamB"
+
+
+class _FakeHalfRates:
+    """Minimal HalfRates Protocol implementation. Anti-eco branch never reads
+    these — returning 0.5 / None is sufficient for the CR-05 regression.
+    """
+
+    def team(self, team: str, map_name: str, side: str) -> float:
+        return 0.5
+
+    def team_entry(
+        self, team: str, map_name: str, side: str
+    ) -> dict[str, Any] | None:
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -429,3 +466,118 @@ def test_dp_advance_to_next_map_takes_explicit_next_side_orient() -> None:
     assert "side_orient='a_def'" not in body_code
     # Body MUST forward the parameter through:
     assert "side_orient=next_side_orient" in body_code
+
+
+# --------------------------------------------------------------------------- #
+# 7. CR-05 regression — pistol_winner_a propagation through DP forward-pass   #
+# --------------------------------------------------------------------------- #
+
+
+def test_dp_anti_eco_uses_gun_win_rate_after_round_1_branch() -> None:
+    """CR-05 (VERIFICATION.md gaps[0]): the DP forward-pass MUST update
+    BO3State.pistol_winner_a when round 1 settles, so that round 2 (anti-eco)
+    dispatches to GUN_WIN_RATE — not the defensive 0.5 fallback in
+    round_types.round_p_for_round.
+
+    Setup: fresh BO3 root with pistol_winner_a=(None, None, None) and the A-wins
+    branch of round 1 applied. The resulting state has a_round=1, b_round=0 and
+    the next round is round 2 (anti-eco). After the CR-05 fix, the propagated
+    pistol_winner_a tuple is (True, None, None), so round_p_for_round dispatches
+    to GUN_WIN_RATE.
+
+    On current `main` this test FAILS — _advance_round propagates
+    pistol_winner_a verbatim and the dispatch falls through to 0.5.
+    """
+    bo3 = BO3State(
+        map_idx=0,
+        a_map_score=0,
+        b_map_score=0,
+        a_round=0,
+        b_round=0,
+        side_orient="a_atk",
+        map_pool=("Lotus", "Bind", "Haven"),
+        pistol_winner_a=(None, None, None),
+    )
+
+    state_after_round_1_a = _advance_round(bo3, a_wins=True)
+    # Verify the state-shape invariant: round counts advanced, pistol slot for
+    # the current map populated, others untouched.
+    assert state_after_round_1_a.a_round == 1
+    assert state_after_round_1_a.b_round == 0
+    assert state_after_round_1_a.pistol_winner_a[0] is True, (
+        f"CR-05 not closed: pistol_winner_a[0] = "
+        f"{state_after_round_1_a.pistol_winner_a[0]!r}, expected True"
+    )
+    assert state_after_round_1_a.pistol_winner_a[1] is None
+    assert state_after_round_1_a.pistol_winner_a[2] is None
+
+    # The A-wins state's next round is round 2 (anti-eco). Dispatch via
+    # round_p_for_round directly — same path live_theo's _RoundPFnImpl uses.
+    p_round_2 = round_p_for_round(
+        state_after_round_1_a, _FakeMatchState(), _FakeHalfRates()  # type: ignore[arg-type]
+    )
+    assert math.isclose(p_round_2, GUN_WIN_RATE, rel_tol=1e-9), (
+        f"CR-05: anti-eco round 2 should use GUN_WIN_RATE ({GUN_WIN_RATE}) "
+        f"after A won round 1, got {p_round_2!r}"
+    )
+
+
+def test_dp_anti_eco_returns_complement_after_b_wins_round_1() -> None:
+    """CR-05 mirror: B-wins branch of round 1 propagates pistol_winner_a[0] = False,
+    and round 2 dispatches to 1 - GUN_WIN_RATE.
+    """
+    bo3 = BO3State(
+        map_idx=0,
+        a_map_score=0,
+        b_map_score=0,
+        a_round=0,
+        b_round=0,
+        side_orient="a_atk",
+        map_pool=("Lotus", "Bind", "Haven"),
+        pistol_winner_a=(None, None, None),
+    )
+
+    state_after_round_1_b = _advance_round(bo3, a_wins=False)
+    assert state_after_round_1_b.a_round == 0
+    assert state_after_round_1_b.b_round == 1
+    assert state_after_round_1_b.pistol_winner_a[0] is False
+    assert state_after_round_1_b.pistol_winner_a[1] is None
+    assert state_after_round_1_b.pistol_winner_a[2] is None
+
+    p_round_2 = round_p_for_round(
+        state_after_round_1_b, _FakeMatchState(), _FakeHalfRates()  # type: ignore[arg-type]
+    )
+    assert math.isclose(p_round_2, 1.0 - GUN_WIN_RATE, rel_tol=1e-9), (
+        f"CR-05 mirror: anti-eco round 2 should use 1-GUN_WIN_RATE "
+        f"({1.0 - GUN_WIN_RATE}) after B won round 1, got {p_round_2!r}"
+    )
+
+
+def test_dp_advance_round_does_not_override_already_settled_pistol() -> None:
+    """CR-05 invariant: when pistol_winner_a[map_idx] is already set (e.g., live
+    ingestion has populated it), _advance_round MUST NOT override it on subsequent
+    round-1 advances. Only None -> True/False is permitted; True/False is
+    immutable through the DP forward-pass.
+
+    (Construction note: an already-settled pistol_winner_a[0] paired with
+    a_round=0, b_round=0 is theoretically reachable only if a caller hand-rolls
+    such a state — it is not a state the DP itself produces. The test guards
+    against a regression where `_advance_round` unconditionally overrides.)
+    """
+    bo3 = BO3State(
+        map_idx=0,
+        a_map_score=0,
+        b_map_score=0,
+        a_round=0,
+        b_round=0,
+        side_orient="a_atk",
+        map_pool=("Lotus", "Bind", "Haven"),
+        pistol_winner_a=(True, None, None),  # already-settled
+    )
+
+    state_after = _advance_round(bo3, a_wins=False)
+    # B winning the "round 1" should NOT flip pistol_winner_a[0] from True -> False.
+    assert state_after.pistol_winner_a[0] is True, (
+        f"CR-05 invariant violated: _advance_round overrode an already-settled "
+        f"pistol_winner_a[0] from True -> {state_after.pistol_winner_a[0]!r}"
+    )
