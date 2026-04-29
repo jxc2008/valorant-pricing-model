@@ -102,7 +102,25 @@ class RoundPFn(Protocol):
 
 
 def _advance_round(state: BO3State, a_wins: bool) -> BO3State:
-    """Increment the winner's round count; flip side at the round-12 boundary."""
+    """Increment the winner's round count; flip side at the round-12 boundary;
+    update ``pistol_winner_a[map_idx]`` when round 1 settles.
+
+    CR-05 fix (VERIFICATION.md gaps[0] / 01-REVIEW.md): the DP forward-pass
+    MUST update ``pistol_winner_a[map_idx] = a_wins`` when advancing past
+    round 1 of the current map. Round 1 completes when the round count was
+    ``(0, 0)`` and is now ``(1, 0)`` or ``(0, 1)``. The update fires ONLY when
+    the existing slot is ``None`` (don't override an ingested live value if
+    already settled — see ``test_dp_advance_round_does_not_override_already_settled_pistol``
+    for the regression lock).
+
+    Phase-2 follow-up: ``pistol_winner_a`` is keyed only by ``map_idx``, so
+    rounds 14/15 cannot be conditioned on a separately-tracked second-half
+    pistol winner. Phase 1 ships rounds 14/15 falling through to the
+    half-rates blend in ``round_types.round_p_for_round`` (the dispatch at
+    line 140 + the defensive 0.5 at line 152 covers the gap). Per-half pistol
+    shape (``tuple[Optional[tuple[bool, bool]], ...]``) is a Phase 2 task —
+    see REQ-round-event-data-pipeline.
+    """
     new_a_round = state.a_round + (1 if a_wins else 0)
     new_b_round = state.b_round + (0 if a_wins else 1)
     # Within-map sides flip after round 12 (i.e., when total==REGULATION_HALF).
@@ -110,6 +128,21 @@ def _advance_round(state: BO3State, a_wins: bool) -> BO3State:
         new_side_orient = "a_def" if state.side_orient == "a_atk" else "a_atk"
     else:
         new_side_orient = state.side_orient
+
+    # CR-05: update pistol_winner_a when advancing past round 1 of the current
+    # map. The trigger is "round count was (0, 0)" — i.e., we are committing
+    # the outcome of round 1 (the pistol). Only update if the slot is currently
+    # None; do NOT override ingested live values. The rebuild is a tuple
+    # comprehension (BO3State stays frozen / slots / hashable; see line 48).
+    new_pistol: tuple[Optional[bool], ...] = state.pistol_winner_a  # noqa: UP045
+    if state.a_round == 0 and state.b_round == 0:
+        existing = state.pistol_winner_a[state.map_idx]
+        if existing is None:
+            new_pistol = tuple(
+                (a_wins if i == state.map_idx else state.pistol_winner_a[i])
+                for i in range(len(state.pistol_winner_a))
+            )
+
     return BO3State(
         map_idx=state.map_idx,
         a_map_score=state.a_map_score,
@@ -118,7 +151,7 @@ def _advance_round(state: BO3State, a_wins: bool) -> BO3State:
         b_round=new_b_round,
         side_orient=new_side_orient,
         map_pool=state.map_pool,
-        pistol_winner_a=state.pistol_winner_a,
+        pistol_winner_a=new_pistol,
     )
 
 
