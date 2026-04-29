@@ -59,7 +59,14 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
   1. `live_theo(state)` returns a `TheoOutput` dataclass with `theo_series, theo_map, vega, confidence`; no other pricing entry points exist (DEC-010); switching to/from MatchState→TheoOutput is the only API surface for the math layer.
   2. The four documented audit-engine bugs are fixed: Bradley-Terry blend (not arithmetic mean) per DEC-003, explicit OT hard-stop at total=24 per DEC-009, pistol/anti-eco rounds modeled with separate inputs per DEC-011, conviction clips at `[0.01, 0.99]` per DEC-012.
   3. Property tests pass: DP value ∈ `[0,1]` for any state; symmetric inputs match `p²(3−2p)` closed form; Bradley-Terry symmetry `round_p(a,b) == 1 − round_p(b,a)`; `theo_series` consistent with sum over `theo_map[]` outcomes (REQ-unit-and-property-tests subset).
-**Plans**: TBD
+**Plans**: 7 plans
+  - [x] 01-01-constants-and-blend-PLAN.md — config constants + Bradley-Terry blend
+  - [x] 01-02-bo3-dp-engine-PLAN.md — generalized BO3 DP + OT hard-stop
+  - [x] 01-03-round-types-PLAN.md — pistol / anti-eco / gunround dispatch
+  - [x] 01-04-round-conclusion-skeleton-PLAN.md — RoundConclusionLookup skeleton (flat 0.5 in Phase 1)
+  - [x] 01-05-live-theo-and-match-state-PLAN.md — LiveTheoEngine bundle + MatchState + TheoOutput
+  - [x] 01-06-derived-output-fixes-PLAN.md — gap closure for CR-01..CR-04 (vega/confidence corruption + memory leak)
+  - [ ] 01-07-pistol-anti-eco-dp-propagation-PLAN.md — gap closure for CR-05 / WR-06 (pistol_winner_a propagation through DP forward-pass)
 **See**: `roadmap.md` §1 (1.1 DP / 1.2 blend / 1.3 round types / 1.4 OT / 1.5 round-conclusion / 1.6 live_theo)
 
 ### Phase 2: Round-event data
