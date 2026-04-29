@@ -218,16 +218,37 @@ def _within_map_p_a_wins(
     WIN_THRESHOLD or the explicit OT-as-coinflip leaf (DEC-009 / D-05).
     Output clipped per DEC-012.
 
+    WR-06 fix (VERIFICATION.md gaps[1] / 01-REVIEW.md WR-06 — same root cause
+    as CR-05 scoped to the future-map sub-DP): the inline state-advance now
+    propagates ``pistol_winner_a`` through the recursion, mirroring
+    ``dp._advance_round``. At the round-1 boundary (a_round == 0 and b_round
+    == 0), the next sub-state's ``pistol_winner_a[map_idx]`` is set to the
+    branch's ``a_wins`` truth IF the slot was previously None (don't override
+    ingested live values). The recursion then carries the updated tuple
+    forward so round 2 / 3 dispatch hits GUN_WIN_RATE in
+    ``round_p_for_round``, not the defensive 0.5 fallback. The cache key
+    is extended to ``(a_round, b_round, side_orient, pistol_winner_a)`` — the
+    propagated tuple is hashable, so the memo stays well-typed.
+
     Memoizes the within-map sub-states with functools.lru_cache. The cache is
-    keyed by (a_round, b_round, side_orient) only — closure-bound state
-    (map_idx, starting_side, etc.) is stable for the call.
+    cleared between calls via ``_clear_pricing_caches`` (CR-04). Per-call
+    allocation is intentional (per-call closure binding of ``match_state`` /
+    ``half_rates`` differs across callers).
     """
     # Build a lightweight closure over the within-map state space.
     fn = _RoundPFnImpl(match_state=match_state, half_rates=half_rates)
-    memo: dict[tuple[int, int, str], float] = {}
+    memo: dict[
+        tuple[int, int, str, tuple[Optional[bool], ...]],  # noqa: UP045
+        float,
+    ] = {}
 
-    def _p_a_recursive(a_round: int, b_round: int, side_orient: str) -> float:
-        cached = memo.get((a_round, b_round, side_orient))
+    def _p_a_recursive(
+        a_round: int,
+        b_round: int,
+        side_orient: str,
+        pistol: tuple[Optional[bool], ...],  # noqa: UP045
+    ) -> float:
+        cached = memo.get((a_round, b_round, side_orient, pistol))
         if cached is not None:
             return cached
         if a_round >= WIN_THRESHOLD:
@@ -247,9 +268,26 @@ def _within_map_p_a_wins(
             b_round=b_round,
             side_orient=side_orient,
             map_pool=map_pool,
-            pistol_winner_a=pistol_winner_a,
+            pistol_winner_a=pistol,
         )
         p_round = fn(synthetic)
+
+        # WR-06: propagate pistol_winner_a at the round-1 boundary, mirroring
+        # dp._advance_round (CR-05 fix). Round 1 settles when (a_round, b_round)
+        # was (0, 0) on entry — the about-to-recurse sub-states represent
+        # post-round-1 states, so we update pistol_winner_a[map_idx] for each
+        # branch IF the slot is currently None.
+        if a_round == 0 and b_round == 0 and pistol[map_idx] is None:
+            pistol_after_a: tuple[Optional[bool], ...] = tuple(  # noqa: UP045
+                (True if i == map_idx else pistol[i]) for i in range(len(pistol))
+            )
+            pistol_after_b: tuple[Optional[bool], ...] = tuple(  # noqa: UP045
+                (False if i == map_idx else pistol[i]) for i in range(len(pistol))
+            )
+        else:
+            pistol_after_a = pistol
+            pistol_after_b = pistol
+
         new_a_round = a_round + 1
         if new_a_round + b_round == REGULATION_HALF:
             side_after_a_win = "a_def" if side_orient == "a_atk" else "a_atk"
@@ -261,14 +299,14 @@ def _within_map_p_a_wins(
         else:
             side_after_b_win = side_orient
         result = p_round * _p_a_recursive(
-            new_a_round, b_round, side_after_a_win
+            new_a_round, b_round, side_after_a_win, pistol_after_a
         ) + (1.0 - p_round) * _p_a_recursive(
-            a_round, new_b_round, side_after_b_win
+            a_round, new_b_round, side_after_b_win, pistol_after_b
         )
-        memo[(a_round, b_round, side_orient)] = result
+        memo[(a_round, b_round, side_orient, pistol)] = result
         return result
 
-    raw = _p_a_recursive(0, 0, starting_side)
+    raw = _p_a_recursive(0, 0, starting_side, pistol_winner_a)
     return max(CONVICTION_CLIP_LOW, min(CONVICTION_CLIP_HIGH, raw))
 
 

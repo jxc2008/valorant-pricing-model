@@ -210,9 +210,21 @@ def test_anti_eco_returns_complement_when_b_won_pistol(
     assert math.isclose(actual, 1.0 - GUN_WIN_RATE, rel_tol=1e-12)
 
 
-def test_anti_eco_with_none_pistol_winner_returns_defensive_05() -> None:
-    """Defensive: round 2 with pistol_winner_a=None → 0.5 (shouldn't happen in
-    well-formed states, but covered for robustness)."""
+def test_anti_eco_with_none_pistol_winner_returns_defensive_05_for_malformed_external_input() -> None:  # noqa: E501
+    """The 0.5 fallback at round_types.py:152 is for MALFORMED EXTERNAL INPUTS
+    only — e.g., a caller hand-rolling a state with `a_round + b_round + 1 == 2`
+    AND `pistol_winner_a[map_idx] is None` (an inconsistent live-ingestion
+    payload). In a well-formed DP forward-pass after the CR-05 fix
+    (01-VERIFICATION.md gaps[0] / 01-07 plan), `dp._advance_round` populates
+    `pistol_winner_a[map_idx]` when round 1 settles, so the round-2/3 dispatch
+    in DP recursion NEVER reaches this branch. Same for the future-map sub-DP
+    after the WR-06 fix in `_within_map_p_a_wins`.
+
+    The assertion target is UNCHANGED: the round_types.py dispatch is unchanged;
+    only the upstream DP forward-pass updates pistol_winner_a. This test now
+    documents the post-fix invariant — the 0.5 fallback is a defensive guard
+    against malformed external inputs, not a code path the DP ever hits.
+    """
     state = _state(
         a_round=1,
         b_round=0,
