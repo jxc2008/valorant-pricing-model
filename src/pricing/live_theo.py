@@ -446,6 +446,17 @@ def _register_reach_map_fn(fn: RoundPFn) -> int:
     return len(_REACH_MAP_FNS) - 1
 
 
+def _clear_pricing_caches() -> None:
+    """Reset the closure registry and lru_cache for one-shot pricing calls.
+
+    CR-04 fix companion (VERIFICATION.md gaps[3]). Same rationale as
+    ``dp._clear_pricing_caches``: ``_REACH_MAP_FNS`` is append-only and the
+    cache key includes the int id so cross-call cache hits are already 0%.
+    """
+    _REACH_MAP_FNS.clear()
+    _p_reach_map_cached.cache_clear()
+
+
 def _p_reach_map(
     state: BO3State,
     round_p_fn: RoundPFn,
@@ -621,4 +632,15 @@ class LiveTheoEngine:
     round_conclusion: Optional[RoundConclusionFn] = None  # noqa: UP045 — Optional retained
 
     def __call__(self, state: MatchState) -> TheoOutput:
-        return _live_theo_impl(state, self.half_rates, self.round_conclusion)
+        # CR-04: bound memory by clearing the per-call closure registries +
+        # lru_caches at the END of every call, even on exception. The
+        # cross-call cache hit rate is already 0% (each call registers a new
+        # closure id; lru_cache keys on (state, int) so old ids are dead
+        # weight). Phase 4's continuous quoter REQUIRES this — see 01-REVIEW.md
+        # CR-04 and 01-VERIFICATION.md gaps[3]. Do NOT remove this finally.
+        from src.pricing import dp as _dp
+        try:
+            return _live_theo_impl(state, self.half_rates, self.round_conclusion)
+        finally:
+            _clear_pricing_caches()
+            _dp._clear_pricing_caches()

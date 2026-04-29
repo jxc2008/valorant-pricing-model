@@ -165,6 +165,24 @@ def _register_round_p_fn(fn: RoundPFn) -> int:
     return len(_ROUND_P_FNS) - 1
 
 
+def _clear_pricing_caches() -> None:
+    """Reset the closure registry and lru_cache for one-shot pricing calls.
+
+    CR-04 fix (VERIFICATION.md gaps[3]): ``_ROUND_P_FNS`` is append-only and
+    ``lru_cache(maxsize=None)`` keys on ``(state, round_p_id)`` so each new
+    closure id invalidates reuse anyway. Resetting per-call bounds memory
+    without sacrificing real cache hits — the int id changes per call, so
+    cross-call hits are already 0%.
+
+    Called by ``LiveTheoEngine.__call__`` from a ``finally`` block so it runs
+    even if the underlying ``_live_theo_impl`` raises. Phase 4's continuous
+    quoter relies on this to avoid a linear-in-time memory leak; do NOT
+    "optimize" by skipping the reset — see CR-04 in 01-REVIEW.md.
+    """
+    _ROUND_P_FNS.clear()
+    _series_value_cached.cache_clear()
+
+
 # --------------------------------------------------------------------------- #
 # 5. DP recursion                                                             #
 # --------------------------------------------------------------------------- #

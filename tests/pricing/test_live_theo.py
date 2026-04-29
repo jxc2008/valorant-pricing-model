@@ -779,6 +779,75 @@ def test_live_theo_engine_call_surface() -> None:
     assert math.isclose(out_engine.confidence, out_impl.confidence, rel_tol=1e-9)
 
 
+def test_no_memory_leak_across_live_theo_calls() -> None:
+    """CR-04 (VERIFICATION.md gaps[3]): the closure registries and lru_caches
+    must be reset per-call so Phase 4's continuous-running quoter does not
+    leak memory linearly. After 100 sequential engine(state) calls, both
+    registries must be near-empty (cleared in __call__'s finally block).
+    """
+    from src.pricing import dp
+    from src.pricing import live_theo as live_theo_mod
+
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()
+    engine = LiveTheoEngine(half_rates=hr)
+    for _ in range(100):
+        engine(state)
+
+    # try/finally cleanup runs after each call — at the moment we observe,
+    # the registries should be empty (the LAST call cleaned up before
+    # returning). Slack of 5 absorbs any future intra-call asymmetry.
+    assert len(dp._ROUND_P_FNS) <= 5, (
+        f"_ROUND_P_FNS leaked: len={len(dp._ROUND_P_FNS)} after 100 calls"
+    )
+    assert len(live_theo_mod._REACH_MAP_FNS) <= 5, (
+        f"_REACH_MAP_FNS leaked: len={len(live_theo_mod._REACH_MAP_FNS)} "
+        f"after 100 calls"
+    )
+
+
+def test_live_theo_engine_clears_caches_even_on_exception() -> None:
+    """CR-04 corollary: cleanup runs in finally so a raising _live_theo_impl
+    still leaves the registries clean.
+    """
+    import unittest.mock
+
+    from src.pricing import dp
+    from src.pricing import live_theo as live_theo_mod
+
+    hr = _synthetic_half_rates()
+    state = _synthetic_match_state()
+    engine = LiveTheoEngine(half_rates=hr)
+
+    # Prime the registries with one good call.
+    engine(state)
+    baseline_dp = len(dp._ROUND_P_FNS)
+    baseline_reach = len(live_theo_mod._REACH_MAP_FNS)
+
+    # Now force _live_theo_impl to raise; the finally MUST still run cleanup.
+    def _raising_impl(*args, **kwargs):  # type: ignore[no-untyped-def]
+        from src.pricing.live_theo import _RoundPFnImpl
+        fn = _RoundPFnImpl(match_state=state, half_rates=hr)
+        dp._ROUND_P_FNS.append(fn)
+        live_theo_mod._REACH_MAP_FNS.append(fn)
+        raise RuntimeError("synthetic failure to test finally cleanup")
+
+    with unittest.mock.patch.object(
+        live_theo_mod, "_live_theo_impl", side_effect=_raising_impl
+    ), pytest.raises(RuntimeError, match="synthetic failure"):
+        engine(state)
+
+    # Cleanup ran in finally — registries are back to baseline (or smaller).
+    assert len(dp._ROUND_P_FNS) <= baseline_dp, (
+        f"_ROUND_P_FNS not cleaned on exception: "
+        f"len={len(dp._ROUND_P_FNS)} vs baseline={baseline_dp}"
+    )
+    assert len(live_theo_mod._REACH_MAP_FNS) <= baseline_reach, (
+        f"_REACH_MAP_FNS not cleaned on exception: "
+        f"len={len(live_theo_mod._REACH_MAP_FNS)} vs baseline={baseline_reach}"
+    )
+
+
 def test_live_theo_engine_is_frozen() -> None:
     """D-20: LiveTheoEngine is a frozen dataclass."""
     hr = _synthetic_half_rates()
