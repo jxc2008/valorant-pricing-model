@@ -1178,3 +1178,120 @@ def test_within_map_anti_eco_uses_gun_win_rate_after_round_1_branch() -> None:
     assert 0.0 < p_round_1 < 1.0, f"R1 dispatch malformed: {p_round_1}"
 
 
+# --------------------------------------------------------------------------- #
+# 7. CR-05/WR-06 end-to-end behavioral lock — asymmetric matchup integration  #
+# --------------------------------------------------------------------------- #
+
+
+def test_live_theo_asymmetric_pistols_match_unset_pistols_after_dp_propagation() -> None:
+    """CR-05 / WR-06 end-to-end behavioral lock (01-VERIFICATION.md re-verification
+    9.25pp swing): under asymmetric half-rates (TeamA 0.55, TeamB 0.45 across all
+    maps/sides) with total=1e9 (no shrinkage), the post-fix LiveTheoEngine must
+    satisfy a STRICT-ORDERING invariant over pistol_winner_a configurations:
+
+        theo_set_AAA > theo_unset > theo_set_BBB
+
+    where:
+      * theo_set_AAA = theo_series with pistol_winner_a=(True,  True,  True)
+      * theo_set_BBB = theo_series with pistol_winner_a=(False, False, False)
+      * theo_unset   = theo_series with pistol_winner_a=(None,  None,  None)
+
+    Pre-fix (CR-05/WR-06 open): theo_unset was stuck at ~0.887 (the verification
+    re-run #2's measurement) because the DP forward-pass dropped pistol updates
+    at the round-1 boundary, so all anti-eco rounds in DP recursion fell through
+    to the defensive 0.5 fallback in round_types.round_p_for_round. The unset
+    case was structurally indistinguishable from a model that ignores anti-eco
+    economics entirely — a 9.25pp systematic bias from the set-AAA baseline.
+
+    Post-fix (CR-05 in dp._advance_round + WR-06 in _within_map_p_a_wins):
+    theo_unset reflects a TRUE marginalization over pistol outcomes via the
+    DP's own forward-pass — round 1 is played with the half-rates blend, then
+    pistol_winner_a propagates through the recursion so anti-eco rounds 2/3
+    dispatch to GUN_WIN_RATE / 1-GUN_WIN_RATE based on who won R1.
+
+    The strict-ordering assertion is the LOAD-BEARING check (per checker fix
+    I-04 — replaces the literal 'law-of-total-probability decomposition' form
+    in PLAN.md Task 6 Step 6.1, which does not hold for the semantics of
+    LiveTheoEngine because forcing pistol=(T,T,T) at root affects ALL R2/R3
+    dispatches regardless of who actually wins R1 in the recursion's own
+    forward-pass — see test_within_map_anti_eco_uses_gun_win_rate_after_round_1_branch
+    for the same Rule 1 fix at the within-map level).
+
+    Soft sanity floors (NOT load-bearing): theo_series in [0.01, 0.99]; the
+    anti-eco swing |theo_set_AAA - theo_set_BBB| > 0.1 confirms the pistol
+    dispatch is structurally active.
+    """
+    asymmetric_hr = HalfRates(
+        team_rates={
+            f"{t}|{m}|{s}": {
+                "wins": (0.55 if t == "TeamA" else 0.45) * 1e9,
+                "total": 1e9,
+                "rate": 0.55 if t == "TeamA" else 0.45,
+                "used_fallback": False,
+            }
+            for t in ("TeamA", "TeamB")
+            for m in ("Lotus", "Bind", "Haven")
+            for s in ("atk", "def")
+        },
+        league_rates={
+            f"{m}|{s}": {"wins": 50.0 * 1e9, "total": 100.0 * 1e9, "rate": 0.5}
+            for m in ("Lotus", "Bind", "Haven")
+            for s in ("atk", "def")
+        },
+        overall_avg=0.5,
+    )
+    state_unset = _synthetic_match_state(
+        pistol_winner_a={0: None, 1: None, 2: None},
+    )
+    state_set_a = _synthetic_match_state(
+        pistol_winner_a={0: True, 1: True, 2: True},
+    )
+    state_set_b = _synthetic_match_state(
+        pistol_winner_a={0: False, 1: False, 2: False},
+    )
+    engine = LiveTheoEngine(half_rates=asymmetric_hr)
+    out_unset = engine(state_unset)
+    out_set_a = engine(state_set_a)
+    out_set_b = engine(state_set_b)
+
+    # Load-bearing strict-ordering invariant:
+    assert out_set_a.theo_series > out_unset.theo_series > out_set_b.theo_series, (
+        f"CR-05/WR-06 not closed end-to-end: expected strict ordering "
+        f"theo_set_AAA > theo_unset > theo_set_BBB, got "
+        f"theo_set_AAA={out_set_a.theo_series!r}, "
+        f"theo_unset={out_unset.theo_series!r}, "
+        f"theo_set_BBB={out_set_b.theo_series!r}"
+    )
+    # Anti-eco swing must be substantial (pre-fix swing collapsed because
+    # all three configurations produced theo near the same flat-anti-eco
+    # value):
+    swing_aaa_bbb = out_set_a.theo_series - out_set_b.theo_series
+    assert swing_aaa_bbb > 0.1, (
+        f"CR-05/WR-06 not closed: anti-eco swing |AAA - BBB| = "
+        f"{swing_aaa_bbb!r} too small — pistol dispatch likely still "
+        f"falling through to the 0.5 fallback for some rounds"
+    )
+    # theo_unset must be BETWEEN the extremes by a meaningful margin (not just
+    # equal to one of them) — pre-fix it was stuck at the broken-anti-eco
+    # value, post-fix it reflects a true marginalization.
+    assert (out_set_a.theo_series - out_unset.theo_series) > 0.01, (
+        f"theo_unset suspiciously close to theo_set_AAA: "
+        f"diff={out_set_a.theo_series - out_unset.theo_series!r}"
+    )
+    assert (out_unset.theo_series - out_set_b.theo_series) > 0.01, (
+        f"theo_unset suspiciously close to theo_set_BBB: "
+        f"diff={out_unset.theo_series - out_set_b.theo_series!r}"
+    )
+
+    # Soft sanity floors (NOT load-bearing).
+    assert out_unset.theo_series > 0.5, (
+        f"sanity floor: theo_series with unset pistols = "
+        f"{out_unset.theo_series!r}, expected > 0.5 (asymmetric matchup "
+        f"with TeamA=0.55 should produce P(TeamA wins series) > 0.5)"
+    )
+    # Witness the conviction clip is in range; all three sides respect [0.01, 0.99].
+    assert CONVICTION_CLIP_LOW <= out_unset.theo_series <= CONVICTION_CLIP_HIGH
+    assert CONVICTION_CLIP_LOW <= out_set_a.theo_series <= CONVICTION_CLIP_HIGH
+    assert CONVICTION_CLIP_LOW <= out_set_b.theo_series <= CONVICTION_CLIP_HIGH
+
+
