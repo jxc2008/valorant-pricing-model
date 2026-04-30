@@ -4,22 +4,22 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 01
 current_plan: 1
-status: executing
+status: ready_to_plan
 stopped_at: End of Phase 0 Wave 1. SUMMARY at `.planning/phases/00-foundation/00-01-project-structure-and-tooling-SUMMARY.md`.
 last_updated: "2026-04-29T20:30:39.944Z"
 last_activity: 2026-04-29
 progress:
   total_phases: 8
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 10
   completed_plans: 9
-  percent: 90
+  percent: 25
 ---
 
 # STATE — Valorant Live Pricing Model
 
 **Project:** Valorant Live Pricing Model
-**Last activity:** 2026-04-29
+**Last activity:** 2026-04-30
 **Last activity description:** Phase 01 execution started
 
 ---
@@ -28,7 +28,7 @@ progress:
 
 - **Core value:** Live pricing engine for Valorant BO3 series + per-map Kalshi markets. Re-prices the series at any moment during a live match, hybrid market-maker / directional taker, fast enough to capture edge or — at minimum — avoid being adversely selected.
 - **Owner:** jxc2008@nyu.edu
-- **Status:** Executing Phase 01
+- **Status:** Ready to plan
 - **Source-of-truth design docs:** `prd.md`, `roadmap.md`, `CLAUDE.md` at repo root.
 - **Locked decisions:** 22 (DEC-001 through DEC-022) — see `.planning/PROJECT.md` `<decisions>` blocks.
 
@@ -37,8 +37,8 @@ progress:
 Phase: 01 (core-pricing-engine) — EXECUTING
 Plan: 1 of 7
 
-- **Current phase:** 01
-- **Current plan:** 1
+- **Current phase:** 2
+- **Current plan:** Not started
 - **Status:** Wave 1 (00-01) complete; Wave 2 ready
 - **Progress:** 0/8 phases complete (0%); 1/3 Phase 0 plans complete (33%)
 
