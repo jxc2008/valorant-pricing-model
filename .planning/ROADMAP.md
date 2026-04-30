@@ -77,7 +77,12 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
   1. `scripts/probe_round_events.py` has been run against rib.gg + bo3.gg endpoints; the path decision (A / B / C) is recorded with evidence in the run log.
   2. If Path A: `round_events` table populated with ≥ 500 historical matches, schema `(match_id, map_num, round_num, ts_round_start, ts_first_kill, ts_bomb_plant, ts_round_end, mid_round_states[])` (`CON-round-events-schema`); `round_conclusion.py` cells calibrated from the dataset. If Path B: 100 VODs OCR-labeled at 1Hz with 10% sample hand-verified. If Path C: explicit defer documented and `round_conclusion` returns fixed `p=0.5`.
   3. Mid-round `live_theo` calls produce non-degenerate predictions (Path A/B) OR explicitly route to between-round-only flow (Path C — Phase 4 quoting still works).
-**Plans**: TBD
+**Plans**: 5 plans
+- [ ] 02-01-PLAN.md — Phase 2 calibration constants + src/pricing/economy.py + ETL deps (Wave 1)
+- [ ] 02-02-PLAN.md — Wave 0 test scaffolds (tests/probe/ fixtures + tests/calibration/ RED tests) (Wave 1)
+- [ ] 02-03-PLAN.md — scripts/probe_round_events.py rib.gg ETL + operator-driven --live run (Wave 2)
+- [ ] 02-04-PLAN.md — RoundConclusionLookup.from_json + lookup body rewrite + scripts/calibrate_round_conclusion.py + models/round_conclusion.json (Wave 3)
+- [ ] 02-05-PLAN.md — Path B contingency stub + LiveTheoEngine integration test (Wave 4)
 **See**: `roadmap.md` §2 (2.1 API scoping / 2.2 Path A / 2.3 Path B / 2.4 Path C)
 
 ### Phase 3: Live ingestion layer
@@ -149,7 +154,7 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
 |---|---|---|---|
 | 0. Foundation | 3/3 | Complete    | 2026-04-27 |
 | 1. Core pricing engine | 0/0 | Not started | — |
-| 2. Round-event data | 0/0 | Not started | — |
+| 2. Round-event data | 0/5 | Planned     | — |
 | 3. Live ingestion layer | 0/0 | Not started | — |
 | 4. Quoting layer | 0/0 | Not started | — |
 | 5. Validation | 0/0 | Not started | — |
