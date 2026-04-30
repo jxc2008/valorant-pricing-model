@@ -69,8 +69,8 @@ Developer-facing gates and ongoing measurements (per `prd.md` §2, §8 and `road
 
 | Phase | Status |
 |---|---|
-| 0 — Foundation | Pending |
-| 1 — Pricing engine | Pending |
+| 0 — Foundation | Complete |
+| 1 — Pricing engine | Complete (2026-04-29) |
 | 2 — Round-event data | Pending |
 | 3 — Live ingestion | Pending |
 | 4 — Quoting | Pending |
@@ -78,7 +78,9 @@ Developer-facing gates and ongoing measurements (per `prd.md` §2, §8 and `road
 | 6 — Deployment | Pending |
 | 7 — Operational maturity | Pending |
 
-Current phase: **none** (planning artifacts just bootstrapped). See `.planning/STATE.md` for live state.
+Current phase: **2 — Round-event data** (next). See `.planning/STATE.md` for live state.
+
+_Last updated: 2026-04-29_
 
 ## Source-of-truth docs
 
