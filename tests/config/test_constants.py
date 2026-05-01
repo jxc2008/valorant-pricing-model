@@ -41,6 +41,21 @@ EXPECTED_NAMES: tuple[str, ...] = (
     "KILL_SWITCH_BRIER_WINDOW",
     # Mode flip
     "VEGA_DIRECTIONAL_THRESHOLD",
+    # Phase 2 — rib.gg probe ETL
+    "RIBGG_BASE_URL",
+    "RIBGG_RECENCY_MONTHS",
+    "RIBGG_TARGET_MATCH_COUNT",
+    "RIBGG_TIER_FILTER",
+    "RIBGG_RATE_LIMIT_RPS",
+    # Phase 2 — calibration
+    "MIN_CELL_N",
+    "MID_ROUND_HEARTBEAT_S",
+    # Phase 2 — economy buckets
+    "ECON_BUCKET_FULL_FLOOR",
+    "ECON_BUCKET_SEMI_BUY_FLOOR",
+    "ECON_BUCKET_SEMI_ECO_FLOOR",
+    # Phase 2 — Path B contingency
+    "OCR_FRAMES_PER_SECOND",
 )
 
 
@@ -105,6 +120,17 @@ EXPECTED_TYPES: dict[str, type] = {
     "KILL_SWITCH_BRIER_BOUND": float,
     "KILL_SWITCH_BRIER_WINDOW": int,
     "VEGA_DIRECTIONAL_THRESHOLD": float,
+    "RIBGG_BASE_URL": str,
+    "RIBGG_RECENCY_MONTHS": int,
+    "RIBGG_TARGET_MATCH_COUNT": int,
+    "RIBGG_TIER_FILTER": str,
+    "RIBGG_RATE_LIMIT_RPS": float,
+    "MIN_CELL_N": int,
+    "MID_ROUND_HEARTBEAT_S": float,
+    "ECON_BUCKET_FULL_FLOOR": int,
+    "ECON_BUCKET_SEMI_BUY_FLOOR": int,
+    "ECON_BUCKET_SEMI_ECO_FLOOR": int,
+    "OCR_FRAMES_PER_SECOND": float,
 }
 
 
@@ -197,3 +223,67 @@ def test_kill_switch_brier_window_is_positive_int() -> None:
 def test_vega_directional_threshold_in_unit_interval() -> None:
     # Vega here is variance of next theo update, theo in [0,1] => vega in [0, 0.25].
     assert 0.0 < constants.VEGA_DIRECTIONAL_THRESHOLD <= 0.25
+
+
+# --------------------------------------------------------------------------- #
+# 4. Phase 2 — value invariants                                               #
+# --------------------------------------------------------------------------- #
+
+
+def test_ribgg_base_url_is_v1_endpoint() -> None:
+    """02-RESEARCH.md verified `https://be-prod.rib.gg/v1` 2026-04-30."""
+    assert constants.RIBGG_BASE_URL == "https://be-prod.rib.gg/v1"
+
+
+def test_ribgg_recency_months_positive() -> None:
+    """D-03: hard cap on event recency."""
+    assert constants.RIBGG_RECENCY_MONTHS > 0
+
+
+def test_ribgg_target_match_count_at_least_500() -> None:
+    """D-03 / must-have #1: target 1000 matches; floor for must-have is 500."""
+    assert constants.RIBGG_TARGET_MATCH_COUNT >= 500
+
+
+def test_ribgg_tier_filter_is_vct() -> None:
+    """D-03: tier-1 filter token."""
+    assert constants.RIBGG_TIER_FILTER == "VCT"
+
+
+def test_ribgg_rate_limit_positive_rps() -> None:
+    """02-RESEARCH.md §Pattern 1: polite-citizen throttle."""
+    assert constants.RIBGG_RATE_LIMIT_RPS > 0
+
+
+def test_min_cell_n_positive_int() -> None:
+    """02-RESEARCH.md §Project Constraints #6: cell drop floor."""
+    assert constants.MIN_CELL_N >= 1
+
+
+def test_mid_round_heartbeat_positive_seconds() -> None:
+    """D-06: synthetic-heartbeat interval."""
+    assert constants.MID_ROUND_HEARTBEAT_S > 0
+
+
+def test_econ_bucket_floors_strictly_decreasing() -> None:
+    """CON-economy-buckets — full > semi-buy > semi-eco floor; eco implicit < semi-eco."""
+    assert (
+        constants.ECON_BUCKET_FULL_FLOOR
+        > constants.ECON_BUCKET_SEMI_BUY_FLOOR
+        > constants.ECON_BUCKET_SEMI_ECO_FLOOR
+        > 0
+    )
+
+
+def test_econ_bucket_floors_match_claudemd_table() -> None:
+    """CLAUDE.md "Domain constants" — bucket floors locked at 20000 / 10000 / 5000."""
+    assert (
+        constants.ECON_BUCKET_FULL_FLOOR,
+        constants.ECON_BUCKET_SEMI_BUY_FLOOR,
+        constants.ECON_BUCKET_SEMI_ECO_FLOOR,
+    ) == (20_000, 10_000, 5_000)
+
+
+def test_ocr_fps_positive() -> None:
+    """D-10: Path B contingency frame rate (placeholder, deferred)."""
+    assert constants.OCR_FRAMES_PER_SECOND > 0
