@@ -34,7 +34,7 @@ data/*.csv
 data/*.parquet
 data/*.db
 data/*.sqlite
-models/
+models/*
 logs/
 !data/.gitkeep
 !models/.gitkeep
@@ -61,6 +61,10 @@ desktop.ini
 models/dp_table.pkl
 data/round_events*
 data/round_events.sqlite
+
+# Calibrated round-conclusion lookup is a committed artifact (D-15 — diff-friendly,
+# reviewable in PRs). Exception to the blanket models/ rule above.
+!models/round_conclusion.json
 
 # Tooling caches not yet covered above
 .tox/
