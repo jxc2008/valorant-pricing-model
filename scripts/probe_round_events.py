@@ -370,13 +370,16 @@ def list_tier1_events(recency_iso: str) -> list[dict[str, Any]]:
     skip = 0
     consecutive_page_failures = 0
     while True:
-        # Server-side VCT filter shrinks pagination from ~6000 events to ~200,
-        # which is ~30x fewer page-fetches and ~30x fewer chances to hit rib.gg's
-        # rate-limit / Heroku cold-start cliff. The client-side
-        # `RIBGG_TIER_FILTER in divisions` check below stays as defense-in-depth.
+        # `hasSeries=true` and `divisions[]=VCT` are both ignored / pathological on
+        # rib.gg's backend: hasSeries=true triggers an unindexed aggregate that
+        # 30s-times-out every request, and divisions[]=VCT does not actually filter
+        # server-side (meta.total stays at ~6340 either way). Drop both server-side
+        # filters and rely on the client-side checks at the bottom of this loop
+        # (`seriesCount > 0` AND `RIBGG_TIER_FILTER in divisions`). This means we
+        # paginate ~127 pages of 50 events instead of ~4, but each page returns in
+        # ~0.5s rather than timing out.
         url = (
-            f"{RIBGG_BASE_URL}/events?take=50&hasSeries=true"
-            f"&divisions[]={RIBGG_TIER_FILTER}"
+            f"{RIBGG_BASE_URL}/events?take=50"
             f"&sort=startDate&sortAscending=false&skip={skip}"
         )
         try:
@@ -525,9 +528,18 @@ def transform_match_to_rows(
             "loadoutValue"
         ]
 
-    team1_players = set(match_meta["team1PlayerIds"])
-    team2_players = set(match_meta["team2PlayerIds"])
-    attacking_first = int(match_meta["attackingFirstTeamNumber"])
+    # rib.gg sometimes returns match records with null rosters / null
+    # attackingFirstTeamNumber (cancelled, forfeited, or not-yet-played
+    # matches that still ship in the series payload). Skip them — the
+    # caller treats an empty yield as `matches_skipped_no_events`.
+    t1 = match_meta.get("team1PlayerIds")
+    t2 = match_meta.get("team2PlayerIds")
+    atk_first = match_meta.get("attackingFirstTeamNumber")
+    if not t1 or not t2 or atk_first is None:
+        return
+    team1_players = set(t1)
+    team2_players = set(t2)
+    attacking_first = int(atk_first)
 
     # team1.id and team2.id are 1 and 2 in rib.gg's schema. We yield two
     # perspectives keyed by team_a_team_num ∈ {1, 2}.
@@ -685,7 +697,16 @@ def _run_scrape(
                     tqdm.write(f"match {match['id']} fetch failed: {exc}")
                     continue
                 # BLOCKER 4: row-doubling — yield both perspectives.
-                rows = list(transform_match_to_rows(match, details, map_num))
+                # Belt-and-suspenders: a single malformed match (rib.gg schema
+                # drift, partial roster data, etc.) must not abort a multi-hour
+                # scrape. transform_match_to_rows already returns empty for
+                # known-sparse cases; this guards against unknown-unknowns.
+                try:
+                    rows = list(transform_match_to_rows(match, details, map_num))
+                except Exception as exc:  # noqa: BLE001
+                    tqdm.write(f"match {match.get('id')} transform failed: {exc}")
+                    counters["matches_skipped_no_events"] += 1
+                    continue
                 if not rows:
                     counters["matches_skipped_no_events"] += 1
                     continue
