@@ -4,7 +4,8 @@ Verifies the Phase 2 / Phase 3 shared bucketing invariants:
   - Boundary cases at every bucket-floor transition (4999 / 5000 / 9999 / 10000 / 19999 / 20000).
   - Defensive handling of negative inputs (returns "eco").
   - Range closure: output is always one of the four canonical labels.
-  - CRule 12 / CON-no-magic-numbers: source body must NOT contain inline 20000 / 10000 / 5000 literals.
+  - CRule 12 / CON-no-magic-numbers: source body must NOT contain inline 20000 / 10000 / 5000
+    literals.
 """
 
 from __future__ import annotations
@@ -74,7 +75,8 @@ def test_credits_to_bucket_returns_canonical_label(credits: int) -> None:
 def test_source_uses_constants_not_inline_literals() -> None:
     """src/pricing/economy.py must not inline 20000 / 10000 / 5000 in the body.
 
-    Mirrors tests/pricing/test_round_conclusion.py:test_source_uses_shrink_prior_constant_not_inline_literal.
+    Mirrors `test_source_uses_shrink_prior_constant_not_inline_literal`
+    in `tests/pricing/test_round_conclusion.py`.
     """
     src = Path("src/pricing/economy.py").read_text(encoding="utf-8")
     code_lines: list[str] = []

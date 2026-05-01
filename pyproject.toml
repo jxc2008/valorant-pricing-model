@@ -7,7 +7,11 @@ requires-python = ">=3.11,<3.12"
 authors = [
     { name = "jxc2008", email = "jxc2008@nyu.edu" },
 ]
-dependencies = []
+dependencies = [
+    "requests>=2.32",
+    "tenacity>=8.5",
+    "tqdm>=4.66",
+]
 
 [dependency-groups]
 dev = [
