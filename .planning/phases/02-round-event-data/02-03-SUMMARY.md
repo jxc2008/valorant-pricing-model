@@ -70,13 +70,35 @@ completed: 2026-05-01
 ## Plan-level Status
 
 ```
-Plan 02-03 status: TASK_1_COMPLETE / TASK_2_CHECKPOINT_PENDING
+Plan 02-03 status: COMPLETE (Task 1 + Task 2 both shipped 2026-05-01)
 ```
 
 | Task | Type | Status | Commit |
 |---|---|---|---|
 | 1 — Implement scripts/probe_round_events.py + tests/probe/test_list_tier1_events.py | auto (tdd) | COMPLETE | 56f807d |
-| 2 — Operator runs `--live` probe; verifies PROBE-LOG.md and SQLite output | checkpoint:human-verify | CHECKPOINT_PENDING | — |
+| 2 — Operator runs `--live` probe; verifies PROBE-LOG.md and SQLite output | checkpoint:human-verify | COMPLETE (Pass: YES) | (operator-run; PROBE-LOG.md committed) |
+
+### Task 2 result (2026-05-01T20:58Z)
+
+Two in-flight bugs surfaced and were fixed mid-run before Pass: YES:
+
+- **fafa6ae** — `hasSeries=true` URL param caused 30s server timeouts on every page (rib.gg backend issue, not a request shape we ever caught in fixtures). Also discovered `divisions[]=VCT` is silently ignored server-side. Both server-side filters dropped; client-side filtering at line 417 is sufficient.
+- **fafa6ae** — `transform_match_to_rows` blew up on first match because rib.gg ships null rosters for cancelled / forfeited / not-yet-played matches in the series payload. Defensive `.get()` + early return; caller hardened with try/except so unknown schema drift can't kill multi-hour scrapes.
+
+Final metrics:
+
+| Metric | Value | Pass criterion |
+|---|---|---|
+| Matches inserted | 1000 | ≥500 floor / 1000 target ✅ |
+| Rounds inserted | 42,586 | — |
+| Series fetched | 552 | — |
+| `ts_round_start` coverage | 100.0% | required ✅ |
+| `ts_round_end` coverage | 100.0% | required ✅ |
+| `ts_first_kill` coverage | 95.3% | — |
+| `ts_bomb_plant` coverage | 59.6% | partial (only plant rounds) |
+| **D-05 partial-pass triggered** | **false** | calibrator can populate `cells_full` ✅ |
+| Matches skipped (null rosters) | 552 | handled by `fafa6ae` defensive fix |
+| Wall-clock | ~28 min | — |
 
 ## Accomplishments — Task 1
 
