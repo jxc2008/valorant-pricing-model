@@ -172,3 +172,105 @@ Source: DEC-001 / CLAUDE.md "Domain constants" / roadmap.md §4.2.
 TBD — initial guess; calibrate after 20+ live matches (PRD §9.2,
 REQ-calibration-loop).
 """
+
+# --------------------------------------------------------------------------- #
+# Phase 2 — rib.gg probe ETL (REQ-round-event-data-pipeline)                  #
+# --------------------------------------------------------------------------- #
+
+RIBGG_BASE_URL: Final[str] = "https://be-prod.rib.gg/v1"
+"""rib.gg internal API base URL (live-verified 2026-04-30 in 02-RESEARCH.md).
+
+Source: 02-RESEARCH.md §"Pattern 1" / DEC-017. The 2022 `Traumist/RIB-Data-Scraper`
+reference used `backend-prod.rib.gg`; the subdomain migrated to `be-prod.rib.gg`
+sometime 2022-2026 (verified 200 OK in research session). Re-probe before scraping
+if Phase 2 execution is delayed >30 days from research date.
+"""
+
+RIBGG_RECENCY_MONTHS: Final[int] = 18
+"""Hard cap on rib.gg `events[].startDate` filter for D-03 coverage bar.
+
+Source: D-03 (CONTEXT.md). Older matches are rejected at probe time. The 18-month
+window straddles 2-3 patch metas; recency-weighting is deferred to Phase 5/7
+(Pitfall 6 / 02-RESEARCH.md). Document rejection count in 02-PROBE-LOG.md.
+"""
+
+RIBGG_TARGET_MATCH_COUNT: Final[int] = 1000
+"""Tier-1 VCT match-count target for the calibration dataset.
+
+Source: D-03 (CONTEXT.md). At ~75k rounds this saturates `cells_full` for the
+popular `(numerical_diff, bomb_planted, side, econ_bucket, map)` combinations.
+Floor for must-have #1 acceptance is 500 matches; 1000 is the target.
+"""
+
+RIBGG_TIER_FILTER: Final[str] = "VCT"
+"""rib.gg `events[].divisions` filter token for tier-1 events.
+
+Source: D-03 (CONTEXT.md) / 02-RESEARCH.md §"Don't Hand-Roll" tier-1 filter row.
+Match if `"VCT" in event.divisions`. Verified shape during 2026-04-30 probe.
+"""
+
+RIBGG_RATE_LIMIT_RPS: Final[float] = 2.0
+"""Self-imposed throttle for rib.gg HTTP fetches, requests-per-second.
+
+Source: 02-RESEARCH.md §"Pattern 1" — rib.gg returned no rate-limit headers, but
+~4000 calls / 2 rps = ~33 minutes is polite-citizen behavior on a public API.
+Probe script sleeps `1 / RIBGG_RATE_LIMIT_RPS` seconds between calls.
+"""
+
+# --------------------------------------------------------------------------- #
+# Phase 2 — calibration                                                       #
+# --------------------------------------------------------------------------- #
+
+MIN_CELL_N: Final[int] = 5
+"""Minimum sample size for a cell to be persisted to models/round_conclusion.json.
+
+Source: 02-RESEARCH.md §"Project Constraints" #6. Below this floor, `_Cell.shrunk()`
+returns essentially `parent_p`; persisting the cell wastes JSON size without
+changing runtime lookup behavior. Drop in calibrator before serialization.
+"""
+
+MID_ROUND_HEARTBEAT_S: Final[float] = 5.0
+"""Synthetic-heartbeat interval for `mid_round_states[]` carry-forward (D-06).
+
+Source: D-06 (CONTEXT.md). Each round emits a heartbeat every 5s on top of the
+native event log; values are carry-forward from the most recent event (D-08).
+This keeps Phase 2 calibration data and Phase 3 runtime data on the same grid.
+"""
+
+# --------------------------------------------------------------------------- #
+# Phase 2 — economy buckets (CON-economy-buckets / CLAUDE.md "Domain constants") #
+# --------------------------------------------------------------------------- #
+
+ECON_BUCKET_FULL_FLOOR: Final[int] = 20_000
+"""Lower bound (inclusive) for `econ_bucket == "full"` (CON-economy-buckets).
+
+Source: CLAUDE.md "Domain constants" / inherited from thunderedge/match_round_data.
+Used by src.pricing.economy.credits_to_bucket. NEVER inline this literal — every
+caller imports from here per CRule 12 / CON-no-magic-numbers.
+"""
+
+ECON_BUCKET_SEMI_BUY_FLOOR: Final[int] = 10_000
+"""Lower bound (inclusive) for `econ_bucket == "semi-buy"` (CON-economy-buckets).
+
+Source: CLAUDE.md "Domain constants". Range: [10000, 19999].
+"""
+
+ECON_BUCKET_SEMI_ECO_FLOOR: Final[int] = 5_000
+"""Lower bound (inclusive) for `econ_bucket == "semi-eco"` (CON-economy-buckets).
+
+Source: CLAUDE.md "Domain constants". Range: [5000, 9999]. Below this floor
+(< 5000) the bucket is "eco".
+"""
+
+# --------------------------------------------------------------------------- #
+# Phase 2 — Path B contingency (deferred per 02-RESEARCH.md Summary)          #
+# --------------------------------------------------------------------------- #
+
+OCR_FRAMES_PER_SECOND: Final[float] = 1.0
+"""Path B OCR frame extraction rate (D-10 — only used if Path A fails).
+
+Source: D-10 (CONTEXT.md) / 02-RESEARCH.md §"Project Constraints" #6.
+Currently unused at runtime — Path A is the verified primary path. Constant
+declared so the Path B contingency stub (scripts/ocr_round_events.py) has
+its threshold pre-located in constants.py without a future planning loop.
+"""
