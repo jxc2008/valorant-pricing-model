@@ -46,7 +46,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 import requests
-from tenacity import RetryCallState, retry, stop_after_attempt
+from tenacity import RetryCallState, RetryError, retry, stop_after_attempt
 from tqdm import tqdm
 
 from src.config.constants import (
@@ -84,6 +84,13 @@ class _RibEconomy(TypedDict, total=False):
 HEADERS: dict[str, str] = {
     "User-Agent": "Mozilla/5.0 (compatible; valorant-pricing-model/0.1; +github)",
     "Referer": "https://www.rib.gg/",
+    # Disable urllib3's default keep-alive pooling. On Windows, pooled sockets
+    # to be-prod.rib.gg go stale after the server closes them silently — next
+    # `requests.get` reuses the dead socket and hangs at the 30s read timeout.
+    # `Connection: close` makes the server close cleanly and prevents urllib3
+    # from caching the socket. Costs ~0.2s extra TLS handshake per call (≈3 min
+    # over a 1000-match scrape) for full reliability.
+    "Connection": "close",
 }
 
 
@@ -118,8 +125,11 @@ def get_json(url: str) -> dict[str, Any]:
 
     Wait function honors `Retry-After` header (W6) before falling through
     to exponential backoff capped at 30s.
+
+    60s per-call timeout (was 30s) — rib.gg pages occasionally stall under load;
+    a longer per-call wait is cheaper than retrying the whole 5-attempt cycle.
     """
-    resp = requests.get(url, headers=HEADERS, timeout=30)
+    resp = requests.get(url, headers=HEADERS, timeout=60)
     resp.raise_for_status()
     out: dict[str, Any] = resp.json()
     return out
@@ -358,12 +368,43 @@ def list_tier1_events(recency_iso: str) -> list[dict[str, Any]]:
     """
     out: list[dict[str, Any]] = []
     skip = 0
+    consecutive_page_failures = 0
     while True:
+        # Server-side VCT filter shrinks pagination from ~6000 events to ~200,
+        # which is ~30x fewer page-fetches and ~30x fewer chances to hit rib.gg's
+        # rate-limit / Heroku cold-start cliff. The client-side
+        # `RIBGG_TIER_FILTER in divisions` check below stays as defense-in-depth.
         url = (
             f"{RIBGG_BASE_URL}/events?take=50&hasSeries=true"
+            f"&divisions[]={RIBGG_TIER_FILTER}"
             f"&sort=startDate&sortAscending=false&skip={skip}"
         )
-        resp = get_json(url)
+        try:
+            resp = get_json(url)
+        except (RetryError, requests.exceptions.RequestException) as exc:
+            # Per-page resilience: rib.gg occasionally returns 5xx for a stretch
+            # of pages under sustained load. Skip the page rather than aborting.
+            consecutive_page_failures += 1
+            sys.stderr.write(
+                f"events page skip={skip} failed ({type(exc).__name__}); "
+                f"advancing past 50 events (consecutive failures: "
+                f"{consecutive_page_failures})\n"
+            )
+            if consecutive_page_failures >= 5:
+                # 5 consecutive failures = streak of 503s. Cool off 5 min and
+                # try one more stretch before giving up. Reset the counter so
+                # subsequent isolated failures don't immediately re-abort.
+                cool_off_seconds = 300
+                sys.stderr.write(
+                    f"events page streak: 5 consecutive failures — cooling off "
+                    f"{cool_off_seconds}s before retrying\n"
+                )
+                time.sleep(cool_off_seconds)
+                consecutive_page_failures = 0
+            skip += 50
+            _throttle()
+            continue
+        consecutive_page_failures = 0
         events = resp.get("data") or []
         if not events:
             break

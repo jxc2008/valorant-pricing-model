@@ -65,3 +65,4 @@ data/round_events.sqlite
 # Tooling caches not yet covered above
 .tox/
 .nox/
+scripts/_probe_live.log
