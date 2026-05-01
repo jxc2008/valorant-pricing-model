@@ -30,7 +30,7 @@ from src.pricing.round_conclusion import (
 )
 
 # --------------------------------------------------------------------------- #
-# 1. Flat-0.5 invariant (Phase 1 contract per D-06)                           #
+# 1. Path-C empty-lookup invariant (D-12 — preserves Phase 1 behavior)        #
 # --------------------------------------------------------------------------- #
 
 
@@ -44,26 +44,44 @@ from src.pricing.round_conclusion import (
     ),
 )
 @settings(max_examples=100, deadline=None)
-def test_lookup_always_returns_flat_05_in_phase_1(
+def test_empty_lookup_returns_side_baseline(
     numerical_diff: int,
     bomb_planted: bool,
     side: str,
     econ_bucket: str,
     map_name: str,
 ) -> None:
-    """D-06: every cell returns _PHASE_1_FLAT_CELL_VALUE = 0.5 in Phase 1.
+    """D-12 / Path-C regression: an unpopulated RoundConclusionLookup returns
+    side_baseline[side] (which defaults to 0.5 atk / 0.5 def per D-06).
 
-    Phase 2 calibration replaces the body of ``lookup`` without touching this
-    test's signature — when calibration lands, this test is rewritten to
-    expect calibrated values. For Phase 1, the invariant is flat 0.5.
+    Phase 2 rewrites the body to walk a 5-tier fallback chain. With every cell
+    dict empty AND default side_baseline, the lookup degrades to the 0.5
+    behavior Phase 1 shipped — locking the Path-C contract.
     """
     lookup = RoundConclusionLookup()
-    assert lookup.lookup(numerical_diff, bomb_planted, side, econ_bucket, map_name) == 0.5
+    expected = lookup.side_baseline[side]
+    assert lookup.lookup(numerical_diff, bomb_planted, side, econ_bucket, map_name) == expected
+    assert expected == 0.5  # default factory
 
 
 def test_phase_1_flat_cell_value_is_05() -> None:
-    """The exported Phase 1 constant equals 0.5 (D-06)."""
+    """The exported Phase 1 constant equals 0.5 (D-06).
+
+    Still exported because it is the defensive ultimate fallback in
+    ``lookup()`` when even side_baseline has been emptied (a degenerate
+    state that should not arise in production but must not crash).
+    """
     assert _PHASE_1_FLAT_CELL_VALUE == 0.5
+
+
+def test_lookup_falls_back_to_flat_when_side_baseline_missing() -> None:
+    """Defensive: if side_baseline is mutated to drop a side, lookup still
+    returns _PHASE_1_FLAT_CELL_VALUE (0.5). Guards against accidental
+    pop("atk") downstream.
+    """
+    lookup = RoundConclusionLookup()
+    lookup.side_baseline.pop("atk", None)
+    assert lookup.lookup(0, False, "atk", "full", "Lotus") == _PHASE_1_FLAT_CELL_VALUE
 
 
 # --------------------------------------------------------------------------- #
