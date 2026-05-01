@@ -1,0 +1,36 @@
+{
+  "data": [
+    {
+      "id": 91001,
+      "eventId": 5832,
+      "completed": true,
+      "matches": [
+        {
+          "id": 213508,
+          "mapId": 7,
+          "map": {"name": "Lotus"},
+          "attackingFirstTeamNumber": 1,
+          "winningTeamNumber": 1,
+          "team1Score": 13,
+          "team2Score": 8,
+          "team1PlayerIds": [101, 102, 103, 104, 105],
+          "team2PlayerIds": [201, 202, 203, 204, 205],
+          "lengthMillis": 2400000
+        },
+        {
+          "id": 213509,
+          "mapId": 8,
+          "map": {"name": "Bind"},
+          "attackingFirstTeamNumber": 2,
+          "winningTeamNumber": 2,
+          "team1Score": 11,
+          "team2Score": 13,
+          "team1PlayerIds": [101, 102, 103, 104, 105],
+          "team2PlayerIds": [201, 202, 203, 204, 205],
+          "lengthMillis": 2580000
+        }
+      ]
+    }
+  ],
+  "meta": {"total": 1}
+}

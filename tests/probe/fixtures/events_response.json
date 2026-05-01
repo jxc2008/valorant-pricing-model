@@ -1,0 +1,41 @@
+{
+  "data": [
+    {
+      "id": 5832,
+      "name": "VCT 2025 Pacific Stage 2",
+      "divisions": ["VCT"],
+      "seriesCount": 31,
+      "startDate": "2025-06-01T00:00:00Z",
+      "vctRegions": ["PACIFIC"],
+      "importance": 100,
+      "slug": "vct-2025-pacific-stage-2",
+      "parent": null,
+      "parentId": null
+    },
+    {
+      "id": 5833,
+      "name": "VCT 2025 Americas Stage 2",
+      "divisions": ["VCT"],
+      "seriesCount": 28,
+      "startDate": "2025-06-15T00:00:00Z",
+      "vctRegions": ["AMERICAS"],
+      "importance": 100,
+      "slug": "vct-2025-americas-stage-2",
+      "parent": null,
+      "parentId": null
+    },
+    {
+      "id": 5900,
+      "name": "VCL Brazil Split 2",
+      "divisions": ["VCL"],
+      "seriesCount": 12,
+      "startDate": "2025-07-01T00:00:00Z",
+      "vctRegions": ["AMERICAS"],
+      "importance": 50,
+      "slug": "vcl-br-split-2",
+      "parent": null,
+      "parentId": null
+    }
+  ],
+  "meta": {"total": 3}
+}

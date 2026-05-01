@@ -1,0 +1,56 @@
+{
+  "id": 213508,
+  "events": [
+    {"roundNumber": 1, "roundTimeMillis": 0,     "eventType": "start",  "attackingTeamNumber": 1, "killId": null, "bombId": null, "playerId": null, "referencePlayerId": null},
+    {"roundNumber": 1, "roundTimeMillis": 12000, "eventType": "kill",   "attackingTeamNumber": 1, "killId": 5001, "bombId": null, "playerId": 101,  "referencePlayerId": 201},
+    {"roundNumber": 1, "roundTimeMillis": 24000, "eventType": "plant",  "attackingTeamNumber": 1, "killId": null, "bombId": 9001, "playerId": 102,  "referencePlayerId": null},
+    {"roundNumber": 1, "roundTimeMillis": 38000, "eventType": "defuse", "attackingTeamNumber": 1, "killId": null, "bombId": 9001, "playerId": 203,  "referencePlayerId": null},
+
+    {"roundNumber": 2, "roundTimeMillis": 0,     "eventType": "start",  "attackingTeamNumber": 1, "killId": null, "bombId": null, "playerId": null, "referencePlayerId": null},
+    {"roundNumber": 2, "roundTimeMillis": 8500,  "eventType": "kill",   "attackingTeamNumber": 1, "killId": 5002, "bombId": null, "playerId": 102,  "referencePlayerId": 202},
+    {"roundNumber": 2, "roundTimeMillis": 14200, "eventType": "kill",   "attackingTeamNumber": 1, "killId": 5003, "bombId": null, "playerId": 103,  "referencePlayerId": 203},
+    {"roundNumber": 2, "roundTimeMillis": 28000, "eventType": "plant",  "attackingTeamNumber": 1, "killId": null, "bombId": 9002, "playerId": 104,  "referencePlayerId": null},
+    {"roundNumber": 2, "roundTimeMillis": 42000, "eventType": "kill",   "attackingTeamNumber": 2, "killId": 5004, "bombId": null, "playerId": 204,  "referencePlayerId": 105},
+
+    {"roundNumber": 3, "roundTimeMillis": 0,     "eventType": "start",  "attackingTeamNumber": 1, "killId": null, "bombId": null, "playerId": null, "referencePlayerId": null},
+    {"roundNumber": 3, "roundTimeMillis": 11000, "eventType": "kill",   "attackingTeamNumber": 2, "killId": 5005, "bombId": null, "playerId": 205,  "referencePlayerId": 105},
+    {"roundNumber": 3, "roundTimeMillis": 18000, "eventType": "kill",   "attackingTeamNumber": 2, "killId": 5006, "bombId": null, "playerId": 204,  "referencePlayerId": 104},
+    {"roundNumber": 3, "roundTimeMillis": 25000, "eventType": "kill",   "attackingTeamNumber": 2, "killId": 5007, "bombId": null, "playerId": 203,  "referencePlayerId": 103},
+    {"roundNumber": 3, "roundTimeMillis": 32000, "eventType": "kill",   "attackingTeamNumber": 2, "killId": 5008, "bombId": null, "playerId": 202,  "referencePlayerId": 102},
+    {"roundNumber": 3, "roundTimeMillis": 39000, "eventType": "kill",   "attackingTeamNumber": 2, "killId": 5009, "bombId": null, "playerId": 201,  "referencePlayerId": 101}
+  ],
+  "economies": [
+    {"roundNumber": 1, "playerId": 101, "loadoutValue": 800},
+    {"roundNumber": 1, "playerId": 102, "loadoutValue": 800},
+    {"roundNumber": 1, "playerId": 103, "loadoutValue": 800},
+    {"roundNumber": 1, "playerId": 104, "loadoutValue": 800},
+    {"roundNumber": 1, "playerId": 105, "loadoutValue": 800},
+    {"roundNumber": 1, "playerId": 201, "loadoutValue": 800},
+    {"roundNumber": 1, "playerId": 202, "loadoutValue": 800},
+    {"roundNumber": 1, "playerId": 203, "loadoutValue": 800},
+    {"roundNumber": 1, "playerId": 204, "loadoutValue": 800},
+    {"roundNumber": 1, "playerId": 205, "loadoutValue": 800},
+
+    {"roundNumber": 2, "playerId": 101, "loadoutValue": 4500},
+    {"roundNumber": 2, "playerId": 102, "loadoutValue": 4500},
+    {"roundNumber": 2, "playerId": 103, "loadoutValue": 4500},
+    {"roundNumber": 2, "playerId": 104, "loadoutValue": 4500},
+    {"roundNumber": 2, "playerId": 105, "loadoutValue": 4500},
+    {"roundNumber": 2, "playerId": 201, "loadoutValue": 1200},
+    {"roundNumber": 2, "playerId": 202, "loadoutValue": 1200},
+    {"roundNumber": 2, "playerId": 203, "loadoutValue": 1200},
+    {"roundNumber": 2, "playerId": 204, "loadoutValue": 1200},
+    {"roundNumber": 2, "playerId": 205, "loadoutValue": 1200},
+
+    {"roundNumber": 3, "playerId": 101, "loadoutValue": 5500},
+    {"roundNumber": 3, "playerId": 102, "loadoutValue": 5500},
+    {"roundNumber": 3, "playerId": 103, "loadoutValue": 5500},
+    {"roundNumber": 3, "playerId": 104, "loadoutValue": 5500},
+    {"roundNumber": 3, "playerId": 105, "loadoutValue": 5500},
+    {"roundNumber": 3, "playerId": 201, "loadoutValue": 4400},
+    {"roundNumber": 3, "playerId": 202, "loadoutValue": 4400},
+    {"roundNumber": 3, "playerId": 203, "loadoutValue": 4400},
+    {"roundNumber": 3, "playerId": 204, "loadoutValue": 4400},
+    {"roundNumber": 3, "playerId": 205, "loadoutValue": 4400}
+  ]
+}
