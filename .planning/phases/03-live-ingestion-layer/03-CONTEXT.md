@@ -164,6 +164,7 @@ Planner reads SPEC.md directly — do NOT re-derive WHAT/WHY questions in plans.
 - **GPU-accelerated OCR** — D-03 chose CPU-only ONNX + tesseract to fit Hetzner CCX13. Phase 6 deployment could promote to GPU instance if Phase 5 paper-trade Brier shows OCR-latency-driven misses.
 - **Per-event-class hybrid checkpoint snapshots in JSONL** — D-02 went pure-diff. Add a `kind: "checkpoint"` line every N events later if replay over 30k diffs becomes a hot path.
 - **30-min operator-driven live smoke run** — explicitly traded off in SPEC for synthetic E2E in CI. Could be added as a Phase 5 bring-up gate.
+- **OCR kill-feed CTC text decoder** (WARNING-4 deferral) — Phase 3 ships the ONNX scaffold + signal extraction path (confidence + `numerical_diff` plumbing); the full PaddleOCR character-dictionary CTC text decode is deferred to Phase 5 calibration. Until then `_infer_onnx` returns `text=""` with a real softmax-min confidence, and arbiter wiring is exercised through synthetic ArbiterPending events plus one fixture-driven OCR test. Re-pin the `numerical_diff` extraction (per BLOCKER-1 rename: `numerical_diff_delta` -> `numerical_diff`) once the decoder ships.
 </deferred>
 
 ---
