@@ -1,9 +1,11 @@
 # PRD — Valorant Live Pricing Model
 
 **Owner:** jxc2008@nyu.edu
-**Status:** Draft
+**Status:** Draft (v2 architecture pivot — 2026-05-02)
 **Created:** 2026-04-27
 **Location:** `C:\Users\josep\OneDrive\Desktop\Thunderedge\valorant-pricing-model\`
+
+> **v2 pivot note (2026-05-02):** This PRD was originally framed as a market-maker-primary bot. After thinking through edge sources and fill-rate concerns on VCT Kalshi markets, the framing changed: the bot is built around **opportunistic directional taking** when DP-based theo disagrees materially with the market, supplemented by MM quoting between rounds when conditions are favorable, with **post-plant** as the one mid-round capability worth building. Kill-feed CV, mid-round economy inference, and ult tracking are explicitly out of scope. Paper trading decides whether MM, taking, or both is the actual edge source — neither is committed to a priori.
 
 ---
 
@@ -11,43 +13,62 @@
 
 The existing `theo_engine.py` (in `thunderedge/worktrees/market-maker/backend/`) prices BO3 series winners **pre-match** using a Markov DP over team/map/side half-win-rates. Once the match starts, the only signal that updates is the scoreboard — every other piece of state (numerical advantage, bomb plant, economy, ult counts) is invisible to the pricer.
 
-We need a **live pricing model** that re-prices the series at any moment during a match, on Kalshi, fast enough to either capture edge or — at minimum — avoid being adversely selected.
+We need a **live pricing model** that re-prices the series at any moment during a match, on Kalshi, fast enough to either capture edge through directional takes or — at minimum — avoid being adversely selected.
 
 ## 2. Goal
 
-A live theo engine that, given the full current match state, returns:
+A live theo engine that, given the current match state, returns:
 
 - `theo_series` ∈ [0, 1]: P(team A wins the series | current state)
 - `theo_map[i]` ∈ [0, 1]: P(team A wins map i | current state) for each map in the pool
 - `confidence`: data-weight in [0, 1]
-- `vega`: variance of the next theo update (drives quote width)
+- `vega`: variance of the next theo update — context-dependent (see §5.4 — between-round and post-plant have separate vega definitions)
 
-End-to-end latency target: **< 500 ms** from observable in-game event → updated theo. Quote-cancel target: **< 100 ms** from state change → all stale orders pulled.
+End-to-end latency target: **< 500 ms** from observable in-game event → updated theo. Defensive quote-pull on bomb-plant detection: **< 200 ms** from detection → all stale quotes pulled. Quote-cancel target: **< 100 ms** from state change → all stale orders pulled.
 
-### 2.1 Trading style — hybrid (event-trigger with vega override)
+### 2.1 Trading style — three-way mode + IDLE (paper trade decides)
 
-Mode is a first-class state, computed every state update:
+Mode is a first-class state, computed every state update. The mode selector is a **pure function** over `(state, theo, market_quote, vega_between, vega_post_plant)` returning one of:
 
-- **MM mode** (default) — during low-volatility states. Quote both YES/NO at theo ± vega-scaled spread.
-- **Directional mode** — pull MM quotes, fire takes when `|theo − market| > threshold`.
+| Mode | When | Action |
+|---|---|---|
+| `MM_BETWEEN_ROUND` | Between rounds, market spread > `MM_MIN_EDGE` | Quote both YES/NO at theo ± vega-scaled spread (floor ≥ Kalshi commission + slippage) |
+| `DIRECTIONAL_TAKE` | Between rounds, `\|theo − market_mid\| > TAKE_THRESHOLD` | Lift offer / hit bid; sized by portfolio Kelly (§2.3) |
+| `POST_PLANT_QUOTE` | Mid-round, `bomb_planted=True` | Re-price using post-plant lookup; quote at theo ± narrow spread, OR take if deviation high |
+| `IDLE` | Pre-match, mid-round-not-planted, between-round insufficient edge, kill-switch active | Pull all resting quotes, no new orders |
 
-Mode flip rules (in order of evaluation):
+Selection logic (evaluated in order):
 
-1. **Event triggers** (primary): mid-round with numerical imbalance ≥ 1, bomb planted, map-point round, score 12-12 / 1-1 decider.
-2. **Vega override** (fallback): if computed vega exceeds `VEGA_DIRECTIONAL_THRESHOLD`, force directional mode regardless of event flags. Catches states the event list missed (extended 1v1 clutch, unusual eco scenario).
-3. **Reset to MM** at round end + side count returns to 5v5 + no event flags active.
+```
+if any_kill_switch_active: IDLE
+if state.bomb_planted: POST_PLANT_QUOTE
+if state.is_mid_round and not state.bomb_planted: IDLE     # no general mid-round trading
+# between-round state from here:
+if abs(theo - market_mid) > TAKE_THRESHOLD: DIRECTIONAL_TAKE
+if market_spread > MM_MIN_EDGE: MM_BETWEEN_ROUND
+otherwise: IDLE
+```
+
+**MM and DIRECTIONAL are first-class peers, not primary/fallback.** During paper trading they run on separate hypothetical-fill ledgers with separate Brier and P&L books, so the architecture survives if only one strategy generates fills (see §8 Promotion gate).
 
 ### 2.2 Markets in scope
 
-**Phase 1:** BO3 series winner + per-map winner. Both price off the same series-from-state DP, so the marginal cost of pricing per-map is small.
+**Phase 1:** BO3 series winner + per-map winner. Both price off the same series-from-state DP — single canonical model, never two that can disagree.
 
-**Pricing approach:** single DP, derive both markets. P(series) directly from DP value at root state; P(map_i) by marginalizing the DP over future map outcomes. Mathematically arb-free by construction — quoting can never internally cross.
+**Pricing approach:** single DP, derive both markets. `P(series)` = DP value at root state; `P(map_i)` = marginalize the DP over future map outcomes. Mathematically arb-free by construction — quoting cannot internally cross.
 
-### 2.3 Sizing — half-Kelly with per-market cap
+### 2.3 Sizing — half-Kelly, per-market cap, per-series aggregate cap
 
-Position size = `0.5 × Kelly_fraction × bankroll`, capped at a per-market exposure ceiling (TBD: §9.1). Half-Kelly preserves ~75% of full-Kelly long-run growth at ~25% of the variance and is the standard defense against theo miscalibration during the model's learning period.
+Position size = `0.5 × Kelly_full × bankroll`, capped at TWO ceilings:
 
-For YES buys: `Kelly_fraction = (theo − market_yes_ask) / (1 − market_yes_ask)`. Symmetric for NO.
+1. **Per-market cap** (`PER_MARKET_CAP_FRAC = 0.05` initial): max fraction of bankroll on any single contract.
+2. **Per-series aggregate cap** (`SERIES_AGGREGATE_CAP_FRAC = 0.10` initial): max fraction of bankroll across **all correlated markets on the same series** — moneyline + map-1 + map-2 + map handicaps + round handicaps all share underlying outcomes and move together.
+
+Per-market caps alone do not bound aggregate risk: 4 correlated markets at 5% each = 20% on one outcome. The sizer takes a `current_series_exposure: dict[series_id, float]` argument and clips new positions so cumulative exposure ≤ aggregate cap. Returns `0` if the aggregate cap is already exceeded.
+
+For YES buys: `Kelly_full = (theo − market_yes_ask) / (1 − market_yes_ask)`. Symmetric for NO. Half-Kelly preserves ~75% of full-Kelly long-run growth at ~25% of variance.
+
+**This is the v1 floor.** Full covariance-aware portfolio Kelly with a per-series correlation matrix is Phase 7 maturity work — flagged explicitly in §9 and roadmap §7. The simple aggregate cap is "safe-enough for paper trade", not "correct".
 
 ## 3. Non-goals
 
@@ -55,6 +76,10 @@ For YES buys: `Kelly_fraction = (theo − market_yes_ask) / (1 − market_yes_as
 - OT modeling (excluded everywhere per existing repo convention).
 - Player-level prop pricing — that's the kill-line track, not this one.
 - Modeling tilt, day-of form, coach reads, crowd. Trader intuition layer, not model.
+- **Live mid-round pricing without a bomb plant.** The bot returns degraded-confidence between-round theo when mid-round-not-planted; quoting layer maps to IDLE. No general mid-round path that depends on noisy state estimates.
+- **Kill-feed CV.** Cut. Required reliability is too high for the build cost.
+- **Mid-round economy inference.** Cut. Economy is not directly observable from broadcast.
+- **Ult-count tracking.** Cut. Partially observable, modest single-input edge.
 
 ## 4. Conceptual framing — the options-theory analog
 
@@ -76,12 +101,10 @@ P(series | now) = E[P(series | next state)]
 
 — under the round-outcome distribution. The existing pre-match Markov DP already does this from `(0,0)`; live pricing is the same DP started from arbitrary state.
 
-Greeks have natural analogs and are useful:
+Greeks have natural analogs. **Vega is context-dependent**:
 
-- **Delta** = ∂P(series)/∂P(round) — risk per round outcome
-- **Gamma** = curvature, peaks near 12-12 / 1-1 maps
-- **Vega** = sensitivity to round-win-prob estimate — drives quote width
-- **Theta** = price drift toward 0/100 as rounds tick
+- **Between-round vega** = variance of theo update over the next round outcome (binary).
+- **Post-plant vega** = variance over post-plant outcomes (kill / defuse / time-out) — richer state, formula calibrated in Phase 4.
 
 ## 5. Architecture
 
@@ -93,165 +116,227 @@ Four layers, each independently buildable:
 
 ### 5.1 Ingestion layer
 
-Parallel sources with **tiered cross-confirmation by event type**:
+CV/OCR scope is **three broadcast HUD elements only.** Tesseract handles all three (small text, low cadence, high contrast). No ONNX kill-feed CNN, no CTC decoder, no GPU dependency.
+
+| Target | Cadence | Purpose |
+|---|---|---|
+| Score banner | 250 ms | Score-change events (round/map win) |
+| Round-end banner | 100 ms during round-end window | Soft round-outcome commit (~500 ms before scoreboard updates) |
+| Bomb-planted icon | 500 ms | Plant/defuse — drives `POST_PLANT_QUOTE` mode + defensive quote-pulling |
+
+Cross-source confirmation rules (collapsed from prior PRD):
 
 | Event type | Confirmation rule | Rationale |
 |---|---|---|
-| Score change (round/map win) | ≥ 2 independent sources within 2s window | Highest blast radius — false score commit corrupts the DP root state |
-| Bomb plant | 1 source if CV-based (HUD icon) AND kill-feed cross-confirms within same frame | Local CV is high-fidelity here, no need to wait for second source |
-| Kill / numerical flip | 1 source if CV-based AND kill-feed cross-confirms | Same as plant |
-| Round-end announcement banner | 1 source (CV) — soft commit, hard-confirmed by next score update | Banner appears ~500ms before scoreboard updates; capture the alpha |
-| Pre-match lineup, sides | API-only, single source | No latency pressure, scrapers are authoritative |
+| Score change | ≥ 2 sources within 2s window (rib.gg + OCR + Twitter) | Highest blast radius — false score commit corrupts DP root state |
+| Bomb plant / defuse | 1 OCR source — soft commit; hard-confirmed by next round-end or score | Bomb-icon CV is high-fidelity; defensive quote-pull is latency-critical |
+| Round-end banner | 1 OCR source — soft commit; hard-confirmed by next score update | Banner appears ~500 ms before scoreboard updates; capture the alpha |
+| Pre-match lineup, sides | API single-source | No latency pressure |
+
+**Removed from earlier draft:** kill-feed cross-confirmation, numerical-flip events, individual kill events. Those signals are no longer ingested.
 
 Sources:
 
-- **CV/OCR on lowest-latency video stream** (extends `vision_parser.py`): score banner, kill feed, bomb icon, ult orbs, player-alive indicators
-- **Scoreboard polling**: rib.gg / bo3.gg / vlr.gg live endpoints
-- **Text listeners**: Twitter/Discord match-thread reactions (~1–3s, noisy but fast)
+- **OCR on lowest-latency video stream** (tesseract): three HUD targets above
+- **Scoreboard polling**: rib.gg primary (Phase 2 proven). bo3.gg / vlr.gg deferred to Phase 5 robustness work
+- **Text listeners**: Twitter API v2 streaming filter on match-related hashtags / accounts (~1–3 s, soft cross-confirmation only). Degrades to no-op without bearer token.
 
 Latency budget per source (approximate):
 
 | Source | Latency | Reliability |
 |---|---|---|
-| Caster client | ~0s | N/A (not accessible) |
-| YouTube low-latency mode | ~3s | High |
-| Kalshi embedded video | ~3–10s | Medium |
-| Twitch HLS | ~5–15s | High |
-| Scoreboard scrapers | 5–60s post round | Authoritative |
-| Twitter/Discord text | ~1–3s post event | Noisy but fast |
+| Caster client | ~0 s | N/A (not accessible) |
+| YouTube low-latency mode | ~3 s | High |
+| Kalshi embedded video | ~3–10 s | Medium |
+| Twitch HLS | ~5–15 s | High |
+| rib.gg scoreboard polling | 5–60 s post round | Authoritative |
+| Twitter/Discord text | ~1–3 s post event | Noisy but fast |
 
 ### 5.2 State engine
 
-Single source of truth:
+Single source of truth, in-memory, frozen+slots dataclass:
 
-```
-{
-  map_idx, map_score_a, map_score_b,
-  round_score_a, round_score_b, side_orientation,
-  econ_a, econ_b, ults_a, ults_b,
-  players_alive_a, players_alive_b,
-  bomb_planted, time_left,
-  seq_id, last_updated_ts
-}
+```python
+@dataclass(frozen=True, slots=True)
+class MatchState:
+    match_id: str
+    map_idx: int
+    a_map_score: int; b_map_score: int
+    a_round: int; b_round: int
+    side_orient: str  # 'a_atk' | 'a_def'
+    bomb_planted: bool
+    attackers_alive: int | None  # only populated when bomb_planted=True
+    defenders_alive: int | None  # only populated when bomb_planted=True
+    time_left_s: float | None    # only populated mid-round / post-plant
+    seq_id: int
+    last_updated_ts: float
 ```
 
-Versioned via `seq_id`. Quoting layer only acts on monotonically increasing seq_ids.
+**Removed from earlier draft:** `econ_a/b` (unobservable from broadcast), `ults_a/b` (cut from scope), `players_alive_a/b` (cut from scope — replaced post-plant by `attackers_alive` / `defenders_alive` from a separate HUD widget that's reliably parseable without kill-feed CV).
+
+Versioned via monotonic `seq_id`. Mutators bump seq_id and append to a JSONL event log on disk for replay/debug. Quoting layer only acts on monotonically-increasing seq_ids. No SQLite for live state.
 
 ### 5.3 Theo engine
 
-Two timescales, composed:
+Two timescales, **two clean code paths** — no general mid-round path that depends on noisy state estimates.
 
-**(a) Round-conclusion model — hierarchical lookup table.** `P(team A wins this round | mid-round state)`, indexed by `(numerical_diff, bomb_status, side, econ_bucket, map)`. ~500–2000 cells total. Bayesian shrinkage to lower-dimensional parent cells when sample is thin (cell → side+map → side → overall). Fully interpretable: any prediction can be audited by inspecting the relevant cell. Inherits the existing `SHRINK_PRIOR=15`, `SIGNAL_SCALE=0.10` from `theo_engine.py` until ≥100 live matches of calibration data exist, then re-fit to minimize live Brier.
+**(a) Between-round path.** When `state.is_mid_round=False`, `live_theo` invokes the DP from current state with `round_p` derived from the side baseline (half_win_rates + pistol/anti-eco modifiers from Phase 1). Fully observable scoreboard state suffices — no lookup required.
 
-**(b) Series-from-state DP.** Generalize existing `_markov_map_win` and `series_theo_from_map_probs` to accept arbitrary starting `(map_idx, round_score_a, round_score_b, side, remaining_pool)`. The state space is < 1M states for a BO3 — pre-compute once, mmap as a lookup table for sub-millisecond reads.
+**(b) Post-plant path.** When `state.bomb_planted=True`, `live_theo` invokes the round-conclusion lookup keyed on `(attackers_alive, defenders_alive, time_remaining_bucket, side, map)`, then propagates that `round_p` through the DP. Calibrated against the Phase 2 dataset filtered to `bomb_planted=True` rounds (~25k samples from the existing 1000-match / 42586-round calibration; subject to Phase 3 verification that the captured `mid_round_states[]` schema includes the required fields — if not, partial Phase 2 ETL re-run scoped to post-plant moments).
 
-**Live theo:**
+**Mid-round, not planted:** `live_theo` returns the between-round theo with degraded confidence; mode selector maps to `IDLE`.
+
+Hierarchical fallback chain (when post-plant cell is sparse):
 
 ```
-theo = round_p × dp[state_after_a_wins_round]
-     + (1 - round_p) × dp[state_after_b_wins_round]
+(att, def, time_bucket, side, map)
+  → (att, def, side, map)
+  → (att, def, side)
+  → (att, def)
+  → side baseline
 ```
 
-Between rounds, `round_p` is the side/map/econ baseline. Mid-round, `round_p` is the round-conclusion lookup output.
+Bayesian shrinkage cell-to-parent (inherits `SHRINK_PRIOR=15`, `SIGNAL_SCALE=0.10` until ≥100 live matches of paper-trade calibration data exist).
+
+**Live theo (pseudocode):**
+
+```python
+def live_theo(state):
+    if state.bomb_planted:
+        round_p = post_plant_lookup(state.attackers_alive, state.defenders_alive,
+                                     time_bucket(state.time_left_s),
+                                     state.side_orient, state.map_idx)
+    else:
+        round_p = side_baseline(state.side_orient, state.map_idx, state.round_idx)
+    return dp.value(state, round_p)
+```
 
 ### 5.4 Quoting / orders
 
-Extends existing `market_maker.py`:
+Three-way mode + IDLE per §2.1. No "default MM" — each mode is independently triggered by state.
 
-- Spread width ∝ vega (variance of next theo update) + staleness penalty
-- `time_since_last_state_update > 2s` → widen aggressively or pull
-- Skew quotes when adverse-selection risk is high (tournament finals, big audience)
+- **`MM_BETWEEN_ROUND`**: spread = `max(MIN_HALF_SPREAD, k × sqrt(vega_between_round)) + staleness_penalty`. Spread floor must beat Kalshi commission + slippage. `time_since_last_state_update > 2s` → widen aggressively or pull. Skew when adverse-selection risk is high.
+- **`DIRECTIONAL_TAKE`**: lift offer / hit bid; portfolio Kelly sizing.
+- **`POST_PLANT_QUOTE`**: defensive quote-pull on plant detection (latency-critical, p50 < 200 ms); re-price with post-plant lookup; take if `|theo − market| > POST_PLANT_TAKE_THRESHOLD`; otherwise quote at theo ± narrow spread (high-conviction state, narrower than between-round MM).
+- **`IDLE`**: pull all resting quotes, no new orders.
+
+**Two vega definitions, two thresholds:**
+
+- `vega_between_round = round_p × (theo_after_a_win − theo)² + (1 − round_p) × (theo_after_b_win − theo)²` — variance over next round outcome.
+- `vega_post_plant`: variance over `{kill, defuse, time-out}` outcomes — TBD formula, calibrate in Phase 4 against observed post-plant theo updates.
+
+The single `VEGA_DIRECTIONAL_THRESHOLD = 0.04` from earlier drafts is **removed**. `DIRECTIONAL_TAKE` triggers on `|theo − market_mid|`, not on vega magnitude — vega only sizes quote width within a mode.
 
 #### Kill switches (all-on, hard-pull all resting quotes)
 
 | Trigger | Action |
 |---|---|
 | Kalshi API errors / network disconnect | Pull + alert. Always-on. |
-| Ingestion staleness > 5s | Pull until fresh confirmed update resumes. |
+| Ingestion staleness > 5 s | Pull until fresh confirmed update resumes. |
 | `\|theo − market\| > 20¢` | Pull + alert for human review. Asymmetric: broken-model risk dominates real-edge upside at this magnitude. |
-| Rolling Brier score > 0.30 over last 50 round predictions | Pull + alert. Catches calibration breaks (roster changes, new map, regime shifts). |
+| Rolling Brier > 0.30 over last 50 round predictions | Pull + alert. Catches calibration breaks (roster changes, new map, regime shifts). |
 
 Threshold values (5s, 20¢, 0.30, 50) are initial — re-tune after first 20 live matches of data.
 
 ### 5.5 Deployment — hybrid local dev + cloud production
 
 - **Local Windows** (`C:\Users\josep\OneDrive\Desktop\Thunderedge\valorant-pricing-model\`): development, backtesting, paper trading. OneDrive filesystem quirks tolerated here since no live capital.
-- **Cloud VM, US-East** (AWS / GCP / Hetzner near Kalshi infra): live trading. Docker image + SSH deploy. ~$30–100/mo. Consistent ~10–20ms RTT to Kalshi API.
-- Promotion gate: backtest Brier < threshold + paper-trade for ≥ 1 full event with target metrics met → deploy to cloud.
+- **Cloud VM, US-East** (Hetzner CCX13 ~$20/mo recommended; AWS t3.small alternative): live trading. Docker image + SSH deploy. Consistent ~10–20 ms RTT to Kalshi API.
+- Promotion gate per §8 — relative Brier + fill-count.
 
 ## 6. Inputs — taxonomy
 
-### Tier 1: clean model inputs (fold into round_p directly)
+### Tier 1: clean model inputs (model uses these)
 
-- Half-win-rate by team/map/side ← already in `half_win_rates.json`
-- Round type / economy state ← generalize `GUN_WIN_RATE = 0.822` into a lookup over `(econ_a, econ_b, side, map)`
-- Player numerical state (5v5, 5v4, 4v3, 1v3) ← biggest single in-round factor
-- Bomb plant status (pre/post-plant) per side
-- Pistol / anti-eco / conversion modifiers
+- Half-win-rate by team/map/side (`half_win_rates.json`) — between-round + baseline
+- Round type / economy (`GUN_WIN_RATE`, pistol/anti-eco modifiers from `match_round_data`) — between-round only
+- Bomb plant status — gates between-round vs post-plant code path
+- Attackers-alive / defenders-alive — post-plant lookup key (only populated when `bomb_planted=True`)
+- Side orientation, map, time-remaining bucket — context keys
 
-### Tier 2: model inputs, painful live data
+### Tier 2: trader intuition only (do NOT model)
 
-- Ult counts per team (need CV on HUD orb tracker)
-- Utility remaining mid-round (proxy via abilities-used in kill feed)
-- Agent comp matchup on the map
+Everything previously framed as "Tier 2: model inputs, painful live data" collapses here. The build-cost-vs-edge tradeoff is unfavorable.
 
-### Tier 3: trader intuition only — do not model
-
-- Tilt / momentum
-- Day-of player form
-- Coach side-switch reads
-- Anti-strat reads on a return map
+- Tilt / momentum / day-of player form
+- Coach side-switch reads, anti-strat reads on a return map
 - LAN vs. online, crowd
+- **Ult counts / utility remaining** (cut from model)
+- **Mid-round economy / purchases** (cut from model — not directly observable)
+- **Live numerical state from kill feed** (cut — only observable post-plant via attackers/defenders-alive HUD widget)
+- Agent comp matchup beyond pre-match map prior
+
+The cut tier comes back only if paper trading shows residual mispricing concentrated in a state the cut signals would have resolved.
 
 ## 7. Build phases
 
 In order, smallest-to-largest:
 
-1. **Generalize Markov DP to arbitrary start state.** Pre-compute lookup table. ~1 day. Immediate value: between-round live pricing, no new data sources.
-2. **Round-type / economy lookup** generalizing `GUN_WIN_RATE`. Pull from existing `match_round_data`. ~1 day.
-3. **Cross-source state arbiter** wrapping `vision_parser` + scoreboard polling. ~3–5 days. The latency-defense layer.
-4. **Scope rib.gg / bo3.gg round-event APIs.** Decision gate: if either exposes per-round (numerical, bomb, kill feed) events, build the round-conclusion model on top in ~3 days. If neither does, escalate to OCR-driven VOD labeling (2-week project) or defer the round-conclusion model and ship phases 1–3.
-5. **Round-conclusion model** (conditional on phase 4 outcome). Numerical state + bomb status + econ delta as features. XGBoost or hierarchical lookup.
-6. **Ult tracking** last — high effort, modest single-input edge.
+1. ✅ **Generalize Markov DP to arbitrary start state** (Phase 1) — done. Pre-computed lookup. Between-round live pricing works with no new data sources.
+2. ✅ **Round-type / economy lookup generalizing `GUN_WIN_RATE`** (Phase 1) — done as part of pistol/anti-eco modeling.
+3. ✅ **Round-event data ETL** (Phase 2) — done. 1000 matches / 42586 rounds calibrated. `models/round_conclusion.json` populated.
+4. **Live ingestion layer (RESCOPED)** (Phase 3) — rib.gg poller + tesseract OCR on three HUD elements + Twitter soft-confirmation + arbiter (3 deques: score / bomb / round-end). MatchState shrunk to scoreboard + bomb context. Includes rekeying `round_conclusion.json` to post-plant-only with `(att, def, time_bucket, side, map)` keys. **No kill-feed CV. No economy inference. No ult tracking.**
+5. **Quoting layer with three-way mode** (Phase 4) — KalshiOrderManager + four-way mode selector + MM_BETWEEN_ROUND quoter + DIRECTIONAL_TAKE + POST_PLANT_QUOTE + portfolio Kelly + four kill switches.
+6. **Validation** (Phase 5) — backtest + paper trading with parallel MM and DIRECTIONAL ledgers. Promotion gate per §8.
+7. **Deployment** (Phase 6) — Docker + Hetzner VM + secrets + observability.
+8. **Operational maturity** (Phase 7) — daily reports + drift detection + incident runbook + portfolio loss limit. **Full covariance-aware portfolio Kelly lives here**, not v1.
 
-Steps 1–3 turn the pre-match engine into a live engine with no new data sources.
+OCR-driven VOD labeling (originally "Path B") is **dropped entirely.** Path C (defer mid-round) was the right call all along — it now becomes the explicit chosen design (post-plant only, no general mid-round).
 
-## 8. Success metrics
+## 8. Success metrics + promotion gate
 
-- **Brier score** of live theo vs. realized outcome (per-state, bucketed by time-to-resolution)
-- **Adverse-selection rate** as MM (% of fills that move against us within 5s)
-- **Quote uptime** during live matches (% of seconds with active quotes)
-- **Latency**: median + p99 from in-game event → state update → quote refresh
+### Promotion gate (live deploy)
+
+After ≥ 1 full event of paper trading:
+
+1. **Relative Brier:** `Brier(model) < Brier(market_mid) − 0.02` over a 50-round window. Both recorded side-by-side every round prediction. If model Brier ≥ market Brier, the bot has no edge — do not deploy.
+2. **Fill-count gate (MM strategy):** if hypothetical MM fills < `MIN_FILLS_PER_MATCH` (initial: 3) averaged over the paper-trade event, **MM is cut from production.** Only `DIRECTIONAL_TAKE` (and `POST_PLANT_QUOTE` if active) promotes to live. The fill-count gate is what makes "MM and DIRECTIONAL run in parallel" architecturally honest.
+3. **Latency:** p50 event → state-commit < 500 ms; bomb-detect → quote-pull p50 < 200 ms; quote-cancel p99 < 100 ms.
+4. **Zero kill-switch trips for ingestion bugs.** Model-trip kill switches (deviation, Brier) are acceptable; bug-trip kill switches (staleness from broken poller, etc.) are not.
+
+### Ongoing measurements
+
+- **Brier score** of live theo vs. realized outcome, per state-bucket (between-round / post-plant).
+- **Adverse-selection rate as MM** (only meaningful if MM survives the gate): % of fills that move against us within 5 s.
+- **Quote uptime during live matches**: % of seconds with active quotes (mode ≠ IDLE).
+- **Latency**: median + p99 from in-game event → state update → quote refresh.
 
 ## 9. Open questions
 
-Resolved in this PRD:
+### Resolved (this PRD, after v2 pivot)
 
 | Decision | Resolution |
 |---|---|
-| Trading style | Hybrid (event-trigger with vega override) |
-| Markets in scope | BO3 series + per-map, via single DP |
-| Label data source | Scope rib.gg / bo3.gg APIs first |
-| Sizing | Half-Kelly with per-market cap |
-| Ingestion confirmation | Tiered by event type |
-| Round-conclusion model | Hierarchical lookup table |
-| Live shrinkage prior | Inherit pre-match (`SHRINK_PRIOR=15`), recalibrate after ≥100 matches |
-| Kill switches | All four: API errors, staleness > 5s, deviation > 20¢, rolling Brier > 0.30 |
+| Trading style | Three-way mode + IDLE (`MM_BETWEEN_ROUND` / `DIRECTIONAL_TAKE` / `POST_PLANT_QUOTE` / `IDLE`); MM and directional are first-class peers; paper trade decides |
+| Markets in scope | BO3 series + per-map, single canonical DP |
+| Mid-round pricing | Two clean code paths — between-round (side baseline) and post-plant (rekeyed lookup); no general mid-round path |
+| Ingestion CV scope | Three HUD targets only (score / round-end / bomb-icon); kill-feed / economy / ults explicitly out |
+| Sizing | Half-Kelly per-market + per-series aggregate cap (portfolio-aware floor, not full covariance Kelly) |
+| Promotion gate | Relative Brier (model < market − 0.02) + fill-count gate (MM cut if thin flow) |
+| Kill switches | All four: API errors, staleness > 5 s, deviation > 20¢, rolling Brier > 0.30 |
+| Round-conclusion model | Hierarchical lookup, rekeyed to `(att, def, time_bucket, side, map)`, post-plant-only |
 | Deployment | Hybrid local dev + cloud production |
 
-### Still TBD (resolve after data exists)
+### Still TBD (resolve during paper trading)
 
-1. **Bankroll size and per-market exposure cap.** Operational, depends on capital allocation decision.
-2. **Numerical thresholds.** `VEGA_DIRECTIONAL_THRESHOLD`, kill-switch values (5s, 20¢, 0.30, 50-round Brier window) — all initial guesses, re-tune after 20+ live matches.
-3. **Vega computation formula.** Variance of next theo update is conceptually clear but has multiple defensible implementations: (a) variance under round-outcome distribution only, (b) variance including ingestion-noise term, (c) bootstrap over recent calibration error. Pick one in phase 1.
-4. **Backtest fidelity.** Replaying past matches against historical market prices requires either an order-book replay (Kalshi may not provide) or a synthetic counterparty. Decide before phase 1 whether backtest is in-scope or whether paper-trade live is the validation path.
+1. **Bankroll size and per-market exposure cap.** Operational; depends on capital allocation. `PER_MARKET_CAP_FRAC = 0.05` placeholder.
+2. **Aggregate cap calibration.** `SERIES_AGGREGATE_CAP_FRAC = 0.10` is a defensive initial guess. After first paper-trade event with real correlation data, recompute from observed inter-market beta.
+3. **`TAKE_THRESHOLD`, `MM_MIN_EDGE`, `POST_PLANT_TAKE_THRESHOLD`.** Initial values TBD; calibrate from observed market structure during paper trade.
+4. **Kill-switch numerical values** (5 s, 20¢, 0.30, 50-round Brier window) and `MIN_FILLS_PER_MATCH` — initial guesses, re-tune after 20+ live matches.
+5. **Vega computation, two contexts.** Between-round vega is well-defined (variance over next round outcome). Post-plant vega TBD — pick a formula in Phase 4, calibrate against observed post-plant theo updates in Phase 5.
+6. **Full covariance-aware portfolio Kelly.** Phase 7 maturity work. Per-series correlation matrix from paper-trade data, then recompute sizing under it. The simple aggregate cap is the v1 floor.
+7. **Backtest fidelity.** Skipped order-fill backtest in favor of paper trading remains the right call (Kalshi historical order-book unavailability). Reconsider if order-book data becomes available.
+8. **Phase 2 dataset completeness for post-plant rekeying.** Phase 3 must verify the captured `mid_round_states[]` schema includes `attackers_alive`, `defenders_alive`, `time_remaining` at bomb-planted moments. If not, partial Phase 2 ETL re-run scoped to post-plant.
 
 ## 10. Dependencies
 
 - Existing `theo_engine.py`, `half_win_rates.json`, `match_round_data` table
-- Existing `vision_parser.py` (OCR backbone)
-- Existing `kalshi_client.py` and `market_maker.py`
-- Riot/rib.gg/bo3.gg/vlr.gg data availability for round-by-round events (TBD)
+- Existing `kalshi_client.py` and `market_maker.py` (Kalshi plumbing salvage only)
+- rib.gg API for round-by-round events (proven via Phase 2 — 1000-match calibration done)
+- Twitter API v2 streaming access (degrade-to-no-op without bearer token)
+- Tesseract 5.x system binary for OCR
+
+**Removed from earlier draft:** `vision_parser.py` salvage, ONNX runtime, ONNX kill-feed CNN checkpoint, GPU dependency.
 
 ## 11. Out of scope (this PRD)
 
@@ -274,6 +359,7 @@ Salvageable files have been copied into `valorant-pricing-model/reference/` and 
 | `half_win_rates.json` | Salvage as-is | Direct input to the new DP |
 | `theo_engine.py` | Partial — keep DP skeleton, rewrite the rest | See §12.2 below |
 | `market_maker.py` | Partial — extract Kalshi plumbing into `KalshiOrderManager` | The 10s poll loop, single quoting mode, and pre-veto var mutation are obsolete |
+| `vision_parser.py` | **DROPPED in v2 pivot** | OCR scope cut to three HUD targets that tesseract handles directly; no salvage needed |
 | `market_implied.py` | Skip | Wrong project — kill-line markets, Poisson inversion |
 | `map_bidder.py` | Skip — subsumed by single-DP map pricing | Has the same atk/def averaging bug as `series_theo_no_sides` |
 | `run_market_maker.py`, `run_quote_bot.py`, `run_map_bidder.py` | Skip | New entry points will be event-driven |
@@ -282,29 +368,24 @@ Salvageable files have been copied into `valorant-pricing-model/reference/` and 
 
 **Definite bugs:**
 
-1. **Docstring drift in `series_theo_from_map_probs`** (line 343-348): docstring claims `p_map = fallback_q + dw_map * (blended_p - 0.5)` but code does `(1.0 - dw) * fallback_q + dw * blended_p` = `fallback_q + dw * (blended_p - fallback_q)`. The `0.5` should be `fallback_q`. Anyone reasoning from the docstring gets a different model than the code implements.
-
+1. **Docstring drift in `series_theo_from_map_probs`** (line 343–348): docstring claims `p_map = fallback_q + dw_map * (blended_p - 0.5)` but code does `(1.0 - dw) * fallback_q + dw * blended_p` = `fallback_q + dw * (blended_p - fallback_q)`. The `0.5` should be `fallback_q`.
 2. **Three pricing entry points with inconsistent math**: `signal_strength` is applied in `series_theo` and `series_theo_no_sides` but NOT in `series_theo_from_map_probs`. Switching entry points silently changes results. Rewrite as one canonical `live_theo`.
-
-3. **Silent OT-as-coinflip despite "no OT" policy.** CLAUDE.md says OT is excluded everywhere. But `_markov_map_win` runs the DP loop through `range(WIN_THRESHOLD * 2) = range(26)`, and at `total >= 24` it uses `p = 0.5`. So OT is implicitly modeled as a coinflip. Either change the policy or stop the loop at `total = 24`.
+3. **Silent OT-as-coinflip despite "no OT" policy.** The DP loop runs through `range(WIN_THRESHOLD * 2) = range(26)`, and at `total >= 24` it uses `p = 0.5`. Hard-stop at `total = 24` with documented OT-coinflip leaf.
 
 **Modeling rigor concerns:**
 
-4. **Round-win-prob blend is an arithmetic mean** (line 161): `p = (a_rate + (1.0 - b_rate)) / 2.0`. Replace with Bradley-Terry-style log-odds: `p = a_rate * (1-b_rate) / (a_rate * (1-b_rate) + (1-a_rate) * b_rate)`. The arithmetic mean under-weights compounding edges toward the extremes.
-
-5. **Two-half flat model ignores pistol / anti-eco.** DP assumes constant `p1` for rounds 1-12 and `p2` for 13-24. But round 1 and round 13 are pistols (`GUN_WIN_RATE = 0.822`), and a pistol win cascades into 2-3 follow-up wins via anti-eco. **Largest single modeling gap.** The new DP must model rounds 1, 2, 3 (pistol + anti-eco/bonus) and 13, 14, 15 explicitly with their own probability inputs, then revert to side-baseline for 4-12 and 16-24.
-
-6. **`series_theo_no_sides` averages atk-start and def-start** (line 420). Wrong — starting side is determined by veto, not random. Use the realized veto outcome.
-
-7. **Hardcoded `[0.05, 0.95]` and `[0.03, 0.97]` clips.** Invisible bounds on conviction. Push to `[0.01, 0.99]` and document.
+4. **Round-win-prob blend is an arithmetic mean** (line 161): `p = (a_rate + (1.0 - b_rate)) / 2.0`. Replace with Bradley-Terry log-odds.
+5. **Two-half flat model ignores pistol / anti-eco.** DP assumes constant `p1` for rounds 1–12 and `p2` for 13–24. Round 1 and 13 are pistols (`GUN_WIN_RATE = 0.822`); pistol wins cascade into 2–3 follow-up wins via anti-eco. Largest single modeling gap.
+6. **`series_theo_no_sides` averages atk-start and def-start** (line 420). Wrong — starting side is determined by veto, not random.
+7. **Hardcoded `[0.05, 0.95]` and `[0.03, 0.97]` clips.** Push to `[0.01, 0.99]` and document.
 
 ### 12.3 Rewrite priorities
 
-Phase 1 work in the new project must:
+Phase 1 work (now complete) addressed items 1–5 + 7. Item 6 (veto-determined starting side) is handled by the new `MatchState.side_orient` field flowing through the DP correctly.
 
-1. Build a single canonical `live_theo(state) → (theo, vega, confidence)`.
-2. Generalize the Markov DP to arbitrary `(map_idx, a_score, b_score, side, remaining_pool)` start states.
-3. Replace arithmetic blend with Bradley-Terry round-win-prob.
-4. Model pistol/anti-eco rounds (1, 2, 3, 13, 14, 15) with separate probability inputs from `GUN_WIN_RATE` and `match_round_data`.
-5. Stop OT silently — either explicit OT model or hard-stop at total=24 with a documented OT-coinflip leaf.
-6. Extract Kalshi plumbing from `market_maker.py` into a thin `KalshiOrderManager` that the new event-driven quoter uses.
+---
+
+## Change log
+
+- **2026-04-27** — Initial PRD draft (MM-primary framing, full mid-round CV scope).
+- **2026-05-02 — v2 pivot.** Three-way mode + IDLE. Kill-feed / economy / ult tracking cut. Round-conclusion lookup rekeyed to post-plant-only. Portfolio Kelly aggregate cap added. Promotion gate switches from absolute Brier to relative-vs-market + fill-count. `vision_parser.py` salvage dropped.

@@ -4,6 +4,8 @@
 
 For locked design decisions referenced below (DEC-*), see `.planning/PROJECT.md`. For full requirement detail (REQ-*), see `.planning/REQUIREMENTS.md`.
 
+> **v2 architecture pivot (2026-05-02):** Phase 3 onwards rescoped. Three-way trading mode + IDLE replaces "hybrid MM-default + DIRECTIONAL flip". Kill-feed CV / mid-round economy / ult tracking cut. Round-conclusion lookup rekeyed to post-plant-only. Portfolio Kelly aggregate cap added. Promotion gate switches to relative-Brier + fill-count. Existing 11 Phase 3 plans (commit `6677e5d`) need teardown + replan.
+
 ---
 
 ## Dependency graph
@@ -85,41 +87,46 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
 - [x] 02-05-PLAN.md — Path B contingency stub + LiveTheoEngine integration test (Wave 4)
 **See**: `roadmap.md` §2 (2.1 API scoping / 2.2 Path A / 2.3 Path B / 2.4 Path C)
 
-### Phase 3: Live ingestion layer
-**Goal**: Real-time `MatchState` is fed by tiered, arbited multi-source ingestion at sub-500ms latency; every state mutation is timestamped through the pipeline.
-**Depends on**: Phase 0 (parallel with Phase 1, Phase 2)
-**Requirements**: REQ-match-state-engine, REQ-scoreboard-polling, REQ-ocr-pipeline, REQ-text-listener, REQ-cross-source-arbiter, REQ-latency-instrumentation
+### Phase 3: Live ingestion layer (RESCOPED v2)
+**Goal**: Real-time `MatchState` is fed by simplified arbited ingestion at sub-500ms latency, with bomb-detect → defensive-quote-pull p50 < 200ms; round-conclusion lookup rekeyed to post-plant-only `(att, def, time_bucket, side, map)` and recalibrated against existing Phase 2 dataset filtered to `bomb_planted=True` (~25k samples).
+**Depends on**: Phase 0, Phase 1, Phase 2
+**Requirements**: REQ-match-state-engine (rescoped), REQ-scoreboard-polling, REQ-ocr-pipeline (3 HUD targets only), REQ-text-listener, REQ-cross-source-arbiter (3 deques), REQ-latency-instrumentation, REQ-round-conclusion-lookup (rekeyed)
 **Must-haves** (falsifiable):
-  1. `MatchState` dataclass with all fields per `CON-match-state-schema`; mutators bump monotonic `seq_id`; every mutation appended to a JSONL event log on disk.
-  2. Cross-source arbiter implements PRD §5.1 tiered confirmation per DEC-006 (score ≥2 sources/2s; bomb/kill/numerical 1 CV-source if kill-feed cross-confirms; round-end soft+hard; pre-match single-source); quarantined updates logged but not committed.
-  3. Every event carries the six-stage timestamp set (`t_observed, t_ingested, t_arbited, t_state_committed, t_theo_computed, t_quote_sent` — `CON-event-timestamp-fields`) into a metrics log; OCR per-target cadences match `CON-ingestion-cadences` (250ms score banner, 100ms kill feed, 500ms bomb icon, 100ms round-end window).
-**Plans**: TBD
-**UI hint**: yes
-**See**: `roadmap.md` §3 (3.1 state engine / 3.2 scoreboard / 3.3 OCR / 3.4 text / 3.5 arbiter / 3.6 instrumentation)
+  1. `MatchState` at `src/state/match_state.py` carries the v2 field set: `match_id, map_idx, a/b_map_score, a/b_round, side_orient, bomb_planted, attackers_alive | None, defenders_alive | None, time_left_s | None, seq_id, last_updated_ts`. Fields cut from v1: `econ_a/b`, `ults_a/b`, `players_alive_a/b`. Mutators bump monotonic `seq_id`; every mutation appended to a JSONL event log on disk.
+  2. Cross-source arbiter has 3 deques (`score_changes`, `bomb_events`, `round_end_events`) per DEC-006 v2 — kill_events / numerical_flips REMOVED. Score ≥2 sources/2s; bomb 1 OCR source soft-commit; round-end 1 OCR source soft-commit. Quarantined events logged with `quarantined: true`.
+  3. OCR pipeline parses three HUD targets only (DEC-024): score banner 250ms, bomb-plant icon 500ms, round-end banner 100ms-during-window. Tesseract-only, CPU-only. **Kill-feed parsing, ult tracking, mid-round economy inference are explicitly out of scope.** When `bomb_planted=True`, a separate post-plant attackers/defenders-alive HUD widget is parsed at 250ms cadence.
+  4. `live_theo` dispatches: `bomb_planted=True → post_plant_lookup(att, def, time_bucket, side, map)`; otherwise → side baseline. No general mid-round path. The `models/round_conclusion.json` is rekeyed (Phase 2 dataset filter + recalibration); v1 keys (numerical_diff, econ_bucket) are deleted.
+  5. Synthetic E2E gate `tests/ingestion/test_e2e.py` drives ≥30 events through arbiter → MatchState → `live_theo` and asserts: seq_id strictly monotonic; p50 `t_observed → t_state_committed` < 500ms; **bomb-detect → quote-pull p50 < 200ms** (latency-critical); `theo_series` non-degenerate post-plant.
+**Plans**: 11 plans currently exist on commit `6677e5d` — these were written under v1 architecture and need teardown + replan under v2.
+**See**: `roadmap.md` §3 (v2: 3.1 state engine / 3.2 scoreboard / 3.3 OCR-3-targets / 3.4 text / 3.5 arbiter-3-deques / 3.6 round-conclusion-rekey / 3.7 instrumentation / 3.8 E2E gate)
 
-> **UI hint rationale:** OCR / vision-parser work is computer-vision UI parsing of broadcast HUD elements (score banner, kill feed, bomb icon). It is *not* a user-facing frontend, but the Phase 3 work touches visual-parsing concerns and warrants the same downstream tooling consideration. If `/gsd-ui-phase` is irrelevant for non-frontend CV work in this project's conventions, the orchestrator can ignore the hint.
-
-### Phase 4: Quoting layer
-**Goal**: Bot quotes Kalshi markets in MM mode by default with hybrid event-trigger flips to DIRECTIONAL, sized by half-Kelly, defended by four always-on kill switches.
-**Depends on**: Phase 1, Phase 3 (Phase 2 optional — degrades to between-round-only MM under Path C)
-**Requirements**: REQ-kalshi-order-manager, REQ-mode-selector, REQ-mm-quoter, REQ-directional-taker, REQ-kelly-sizer, REQ-kill-switches, REQ-order-lifecycle-reconciliation
+### Phase 4: Quoting layer (RESCOPED v2)
+**Goal**: Bot runs three-way mode + IDLE on Kalshi markets — MM and DIRECTIONAL are first-class peers running on parallel hypothetical-fill ledgers during paper trade; POST_PLANT_QUOTE handles bomb-planted state with defensive quote-pull. Sizing is portfolio-aware (per-market + per-series aggregate cap). Defended by four always-on kill switches.
+**Depends on**: Phase 1, Phase 3
+**Requirements**: REQ-kalshi-order-manager, REQ-mode-selector (v2 three-way + IDLE), REQ-mm-quoter (v2 between-round only), REQ-directional-taker (v2 first-class peer), REQ-post-plant-quoter (NEW v2), REQ-kelly-sizer (v2 portfolio-aware), REQ-kill-switches, REQ-order-lifecycle-reconciliation
 **Must-haves** (falsifiable):
-  1. `trading_mode(state, vega)` is a pure function evaluating triggers in PRD §2.1 order (numerical imbalance → bomb planted → map-point → late decider → vega override → MM default) per DEC-001 / `CON-trading-mode-signature`; resets to MM at round end + 5v5 + no flags.
-  2. `kelly_size(theo, market_yes_ask, bankroll)` implements `CON-kelly-sizer-signature` exactly: `b = (1−ask)/ask`, `f = max(0, KELLY_MULTIPLIER × f_full)`, `f = min(f, PER_MARKET_CAP_FRAC)` (DEC-004); never returns full-Kelly sizing.
-  3. All four kill switches active by default with no per-switch disable flag (DEC-005); each is a pure predicate over `(state, theo, market, recent_briers)`; ANY trip cancels all resting quotes via `KalshiOrderManager.cancel_all_orders` and fires alert; bot stays in `dry_run=True` until promotion gate met (DEC-022).
+  1. `trading_mode(state, theo, market, vega_between, vega_post_plant, kill_switch_active)` is a pure function returning `Literal["MM_BETWEEN_ROUND", "DIRECTIONAL_TAKE", "POST_PLANT_QUOTE", "IDLE"]` per DEC-001 v2; selection in declared order: kill-switch → bomb-planted → mid-round-not-planted → take-threshold → MM-min-edge → IDLE. **No "default MM" framing** — MM and DIRECTIONAL are peers.
+  2. `kelly_size(theo, market_yes_ask, bankroll, series_id, current_series_exposure)` implements DEC-023 v2 portfolio Kelly: per-market cap (`PER_MARKET_CAP_FRAC = 0.05`) AND per-series aggregate cap (`SERIES_AGGREGATE_CAP_FRAC = 0.10`). Returns 0 if aggregate cap already exceeded. Never returns full-Kelly sizing.
+  3. POST_PLANT_QUOTE produces defensive quote-pull within 200ms of bomb-detect (latency-critical); re-prices using post-plant lookup; takes if `|theo - market| > POST_PLANT_TAKE_THRESHOLD`, otherwise quotes at theo ± narrow spread.
+  4. MM_BETWEEN_ROUND and DIRECTIONAL_TAKE write hypothetical fills to **separate ledgers** so paper-trade promotion gate (DEC-020 v2) can evaluate them independently — DIRECTIONAL can promote to live even if MM is cut for thin fills.
+  5. All four kill switches active by default with no per-switch disable flag (DEC-005); each is a pure predicate over `(state, theo, market, recent_briers)`; ANY trip cancels all resting quotes and fires alert; bot stays in `dry_run=True` until promotion gate met (DEC-022).
 **Plans**: TBD
-**See**: `roadmap.md` §4 (4.1 KalshiOrderManager / 4.2 mode / 4.3 MM / 4.4 directional / 4.5 Kelly / 4.6 kill switches / 4.7 reconciliation)
+**See**: `roadmap.md` §4 v2 (4.1 KalshiOrderManager / 4.2 mode-selector / 4.3 MM-between-round / 4.4 directional-taker / 4.5 post-plant-quoter / 4.6 portfolio-Kelly / 4.7 kill switches / 4.8 reconciliation)
 
-### Phase 5: Validation
-**Goal**: Model and bot pass the promotion gate — Brier baseline beaten by ≥ 0.02 over 50-round windows in backtest, ≥ 1 full event of paper trading with Brier < 0.22 and zero ingestion-bug kill-switch trips.
+### Phase 5: Validation (RECALIBRATED GATES v2)
+**Goal**: Model and bot pass v2 promotion gate — relative Brier (`Brier(model) < Brier(market_mid) − 0.02` over 50-round windows) AND fill-count gate (MM cut from production if hypothetical fills < `MIN_FILLS_PER_MATCH`) AND latency targets AND zero ingestion-bug kill-switch trips. **MM and DIRECTIONAL ledgers evaluated independently** — DIRECTIONAL can promote even if MM is cut.
 **Depends on**: Phase 4
-**Requirements**: REQ-unit-and-property-tests, REQ-backtest, REQ-paper-trading, REQ-calibration-loop
+**Requirements**: REQ-unit-and-property-tests, REQ-backtest, REQ-paper-trading (v2 gates), REQ-calibration-loop
 **Must-haves** (falsifiable):
-  1. 80% line coverage on `src/pricing/` (`CON-coverage-target`); hypothesis property tests pass for the four invariants in REQ-unit-and-property-tests.
-  2. Backtest replay against past season's matches reports per-bucket Brier (early-game / mid-game / post-plant / late) and shows live theo Brier ≤ static-prior baseline by ≥ 0.02 over 50-round windows; order-fill backtest skipped per DEC-020.
-  3. Paper-trade promotion gate satisfied (`CON-promotion-gate`): ≥ 1 full event with Brier < 0.22 and zero kill-switch trips for ingestion bugs (model-trip kill switches acceptable). Latency p50 < 500ms event→theo and quote-cancel p99 < 100ms recorded across the event.
+  1. 80% line coverage on `src/pricing/`; hypothesis property tests pass for the four invariants in REQ-unit-and-property-tests.
+  2. Backtest replay reports per-bucket Brier (between-round / post-plant) for **both model and market_mid** side-by-side; shows live theo Brier ≤ market_mid Brier by ≥ 0.02 over 50-round windows. Order-fill backtest skipped per DEC-020.
+  3. Paper-trade promotion gate satisfied (DEC-020 v2):
+     a. `Brier(model) < Brier(market_mid) − 0.02` over 50-round window (replaces absolute < 0.22)
+     b. MM hypothetical fills ≥ `MIN_FILLS_PER_MATCH` averaged across the event (else MM cut from production)
+     c. Latency p50 event→state-commit < 500ms; bomb-detect → quote-pull p50 < 200ms; quote-cancel p99 < 100ms
+     d. Zero kill-switch trips for ingestion bugs (model-trip OK; bug-trip not)
 **Plans**: TBD
-**See**: `roadmap.md` §5 (5.1 tests / 5.2 backtest / 5.3 paper trading / 5.4 calibration)
+**See**: `roadmap.md` §5 v2 (5.1 tests / 5.2 backtest with side-by-side market Brier / 5.3 paper trading 2-ledger / 5.4 promotion gate / 5.5 calibration)
 
 ### Phase 6: Deployment
 **Goal**: Bot runs in production on a US-East cloud VM with proper secrets handling, structured observability, and a working CI/CD path from local dev to live `--live`-flag deployment.
@@ -135,16 +142,17 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
 
 > **UI hint rationale:** Phase 6.6 builds a Grafana dashboard. It is operator-facing observability, not end-user product UI; included for downstream-tooling completeness.
 
-### Phase 7: Operational maturity
-**Goal**: Bot is sustainably operable in production — daily/weekly automated reporting, drift alerting, an incident runbook, and a portfolio-level loss limit distinct from per-market kill switches.
+### Phase 7: Operational maturity (v2 — adds covariance Kelly)
+**Goal**: Bot is sustainably operable in production — daily/weekly automated reporting, drift alerting, an incident runbook, a portfolio-level loss limit distinct from per-market kill switches, AND **full covariance-aware portfolio Kelly** that replaces the simple aggregate cap from Phase 4.
 **Depends on**: Phase 6
-**Requirements**: REQ-daily-metrics-report, REQ-weekly-drift-detection, REQ-incident-runbook, REQ-portfolio-loss-limit
+**Requirements**: REQ-daily-metrics-report, REQ-weekly-drift-detection, REQ-incident-runbook, REQ-portfolio-loss-limit, REQ-portfolio-correlation-kelly (NEW v2)
 **Must-haves** (falsifiable):
-  1. Cron job emails daily summary (matches traded, fills, P&L, Brier, kill-switch trips, model version) every UTC day with no manual intervention.
+  1. Cron job emails daily summary (matches traded, fills per strategy, P&L per strategy, Brier-vs-market, kill-switch trips, model version) every UTC day with no manual intervention.
   2. Weekly drift job compares last-7-days Brier distribution to baseline calibration set; KL divergence above threshold fires an alert with diagnostic context.
   3. Portfolio loss limit halts the bot when cumulative realized + unrealized P&L < −X% of bankroll until manual review (DEC-021); incident runbook documents remote-halt, manual-cancel-via-Kalshi-UI, image-rollback, and per-kill-switch interpretation.
+  4. **Covariance-aware portfolio Kelly** replaces the v1-floor aggregate cap (DEC-023) once sufficient paper-trade + live correlation data exists. Per-series correlation matrix derived from observed inter-market beta; sizer recomputes positions accounting for cross-market correlation rather than just bounding fractional exposure.
 **Plans**: TBD
-**See**: `roadmap.md` §7 (7.1 daily / 7.2 drift / 7.3 runbook / 7.4 risk limits)
+**See**: `roadmap.md` §7 v2 (7.1 daily / 7.2 drift / 7.3 runbook / 7.4 loss limit / 7.5 covariance Kelly)
 
 ---
 
@@ -165,7 +173,7 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
 
 ## Coverage check
 
-- All 37 v1 requirements (REQ-*) mapped across Phases 1–7. Phase 0 has no REQs (bootstrap; constraint-only scope).
+- All 39 v2 requirements (REQ-*) mapped across Phases 1–7 (was 37 in v1; +REQ-post-plant-quoter, +REQ-portfolio-correlation-kelly). Phase 0 has no REQs (bootstrap; constraint-only scope).
 - No orphans, no duplicates. See `.planning/REQUIREMENTS.md` Traceability table.
-- Critical-path totals from `roadmap.md`: ~4–6 weeks of build time + ~2 weeks paper trading; ~7–8 weeks calendar end-to-end (API path) or ~10–12 weeks (OCR path).
-- Earliest revenue: between-round live MM after ~3 weeks if Phases 1, 3, 4 ship with `round_conclusion` deferred (Path C).
+- Critical-path totals (v2): Phases 0/1/2 done; Phase 3 (rescoped) ~5–7 days; Phase 4 (rescoped) ~5–7 days; Phase 5 ~3–5 days build + 2 weeks paper trade calendar; Phase 6 ~3–5 days. **~5–6 weeks calendar to first live deploy.**
+- Earliest revenue: between-round directional taking after ~3 weeks if Phase 3 ingestion + Phase 4 mode selector + portfolio Kelly land cleanly. POST_PLANT_QUOTE additive on top. MM survives only if fill-count gate clears in paper trade.

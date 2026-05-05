@@ -2,16 +2,16 @@
 
 **Slug:** `valorant-pricing-model`
 **Owner:** jxc2008@nyu.edu
-**Status:** Draft
+**Status:** Draft (v2 architecture pivot — 2026-05-02)
 **Created:** 2026-04-27
 
 ---
 
 ## Mission
 
-Live pricing engine for Valorant BO3 series + per-map Kalshi markets. Hybrid market-maker / directional taker. Re-prices the series at any moment during a live match, fast enough to either capture edge or — at minimum — avoid being adversely selected by counterparties consuming the same data feeds with lower latency.
+Live pricing engine for Valorant BO3 series + per-map Kalshi markets. **Three-way mode + IDLE: opportunistic directional taking + between-round MM (paper-trade-evaluated peer) + post-plant quoting.** Re-prices the series at any moment during a live match, fast enough to either capture edge through directional takes or — at minimum — avoid being adversely selected by counterparties consuming the same data feeds with lower latency.
 
-The existing `theo_engine.py` (in `thunderedge/worktrees/market-maker/backend/`) prices BO3 series winners pre-match using a Markov DP over team/map/side half-win-rates. Once the match starts, the only signal that updates is the scoreboard — every other piece of state (numerical advantage, bomb plant, economy, ult counts) is invisible to the pricer. This project closes that gap.
+The existing `theo_engine.py` (in `thunderedge/worktrees/market-maker/backend/`) prices BO3 series winners pre-match using a Markov DP over team/map/side half-win-rates. Once the match starts, the only signal that updates is the scoreboard. This project closes that gap — but **only for between-round and post-plant states.** Mid-round-not-planted is explicitly out of scope; kill-feed CV, mid-round economy inference, and ult tracking are cut.
 
 ## Scope (v1)
 
@@ -21,16 +21,16 @@ The four-layer architecture from `prd.md` §5:
 [Ingestion] → [State Engine] → [Theo Engine] → [Quoting / Orders]
 ```
 
-In scope for v1:
+In scope for v1 (v2 pivot applied):
 
 - BO3 series winner + per-map winner pricing (single canonical DP, marginalize for per-map)
-- Hybrid trading mode (MM default, event-trigger + vega override flips to DIRECTIONAL)
-- Half-Kelly sizing with per-market cap
+- **Three-way mode + IDLE** (`MM_BETWEEN_ROUND` / `DIRECTIONAL_TAKE` / `POST_PLANT_QUOTE` / `IDLE`); MM and directional are first-class peers, paper trade decides
+- **Portfolio-aware Kelly sizing**: half-Kelly per-market cap PLUS per-series aggregate cap to bound correlated exposure across moneyline / map / handicap markets
 - Four always-on kill switches (API errors, ingestion staleness, theo-vs-market deviation, rolling Brier)
-- Tiered ingestion confirmation (CV/OCR + scoreboard polling + text listeners + arbiter)
-- Round-conclusion lookup (hierarchical fallback chain) — gated by Phase 2 API decision (DEC-017)
+- **Simplified tiered ingestion confirmation** (rib.gg poller + tesseract OCR on three HUD targets only + Twitter soft-confirm + arbiter); kill-feed CV / economy / ults explicitly out
+- **Two-path round-conclusion**: between-round (side baseline) + post-plant lookup keyed on `(att, def, time_bucket, side, map)`; no general mid-round path
 - Local Windows dev / paper-trade environment + cloud VM production deploy
-- Operational maturity layer: daily metrics, weekly drift detection, incident runbook, portfolio loss limit
+- Operational maturity layer: daily metrics, weekly drift detection, incident runbook, portfolio loss limit, **full covariance-aware portfolio Kelly (Phase 7)**
 
 ## Non-goals (explicit)
 
@@ -43,6 +43,9 @@ From `prd.md` §3, §11:
 - BO5 series modeling
 - Pick/ban model (handled by pre-match `pickban_prediction`)
 - Player kill-line markets
+- **(v2 cuts)** General mid-round live pricing without bomb plant — bot returns degraded-confidence between-round theo and quoting maps to IDLE
+- **(v2 cuts)** Kill-feed CV, mid-round economy inference, ult-count tracking
+- **(v2 cuts)** OCR-driven VOD labeling (Phase 2 Path B) — never executed; rib.gg API path was sufficient
 
 See `prd.md` §3, §11 for full non-goals list and `context.md / Out of scope` for synthesis-level reconciliation of the OT framing.
 
@@ -57,13 +60,14 @@ See `prd.md` §3, §11 for full non-goals list and `context.md / Out of scope` f
 
 ## Success metrics
 
-Developer-facing gates and ongoing measurements (per `prd.md` §2, §8 and `roadmap.md` §5.3):
+Developer-facing gates and ongoing measurements (per `prd.md` §2, §8 and `roadmap.md` §5.3, §5.4 — v2):
 
-- **Latency:** < 500 ms median (in-game event → updated theo); < 100 ms (state change → all stale orders pulled)
-- **Brier:** live theo Brier ≤ rib.gg-derived static-prior baseline by ≥ 0.02 over a 50-round window during paper trading
-- **Promotion gate to live:** ≥ 1 full event of paper trading with Brier < 0.22 AND zero kill-switch trips for ingestion bugs (model-trip kill-switch trips are acceptable; bug-trip ones are not)
-- **Adverse-selection rate as MM:** % of fills that move against us within 5s — baseline observed during paper trading, then tracked
-- **Quote uptime during live matches:** % of seconds with active quotes
+- **Latency:** p50 < 500 ms (in-game event → updated theo); **bomb-detect → quote-pull p50 < 200 ms** (defensive, latency-critical); quote-cancel p99 < 100 ms
+- **Relative Brier promotion gate:** `Brier(model) < Brier(market_mid) − 0.02` over a 50-round window during paper trading (model and market Brier recorded side-by-side every prediction). If model ≥ market, do NOT deploy.
+- **Fill-count gate (MM strategy):** if hypothetical MM fills < `MIN_FILLS_PER_MATCH` (initial: 3) averaged over a paper-trade event, MM is cut from production. Only DIRECTIONAL_TAKE (and POST_PLANT_QUOTE if active) promotes to live.
+- **Zero kill-switch trips for ingestion bugs** in paper trade (model-trip OK; bug-trip not).
+- **Adverse-selection rate as MM** (only meaningful if MM survives the gate): % of fills that move against us within 5 s.
+- **Quote uptime during live matches:** % of seconds with active quotes (mode ≠ IDLE).
 
 ## Status
 
@@ -71,16 +75,16 @@ Developer-facing gates and ongoing measurements (per `prd.md` §2, §8 and `road
 |---|---|
 | 0 — Foundation | Complete |
 | 1 — Pricing engine | Complete (2026-04-29) |
-| 2 — Round-event data | Pending |
-| 3 — Live ingestion | Pending |
-| 4 — Quoting | Pending |
-| 5 — Validation | Pending |
+| 2 — Round-event data | Complete (2026-05-01 — Path A; 1000 matches / 42586 rounds calibrated) |
+| 3 — Live ingestion (RESCOPED v2) | Pending — plans need teardown + replan under new architecture |
+| 4 — Quoting (RESCOPED v2) | Pending |
+| 5 — Validation (relative Brier + fill-count gates) | Pending |
 | 6 — Deployment | Pending |
-| 7 — Operational maturity | Pending |
+| 7 — Operational maturity (incl. covariance Kelly) | Pending |
 
-Current phase: **2 — Round-event data** (next). See `.planning/STATE.md` for live state.
+Current phase: **3 — Live ingestion** (rescoped under v2 pivot 2026-05-02; existing 11 plans on commit `6677e5d` need teardown). See `.planning/STATE.md` for live state.
 
-_Last updated: 2026-04-29_
+_Last updated: 2026-05-02 (v2 pivot)_
 
 ## Source-of-truth docs
 
@@ -107,14 +111,25 @@ The 22 decisions below are operationally locked. PRD §9 explicitly enumerates 9
 
 <decisions>
 - id: DEC-001
-  title: Hybrid trading style (event-trigger with vega override)
-  source: prd.md §2.1, §9
-  corroborating: roadmap.md §4.2
+  title: Three-way mode + IDLE (v2 — replaces hybrid event-trigger framing)
+  source: prd.md §2.1, §9 (v2 pivot 2026-05-02)
+  corroborating: roadmap.md §4.2 (v2)
   scope: trading mode selection
   statement: |
-    Default to MM (market-maker) mode with theo ± vega-scaled spread. Flip to DIRECTIONAL on any of:
-    (a) numerical imbalance ≥ 1, (b) bomb planted, (c) map-point round, (d) score 12-12 / 1-1 decider,
-    OR (e) `vega > VEGA_DIRECTIONAL_THRESHOLD`. Reset to MM at round end + 5v5 + no event flags.
+    Mode selector is a pure function over (state, theo, market, vega_between, vega_post_plant, kill_switch_active)
+    returning one of MM_BETWEEN_ROUND / DIRECTIONAL_TAKE / POST_PLANT_QUOTE / IDLE.
+
+    Selection logic (in order):
+      1. kill_switch_active → IDLE
+      2. state.bomb_planted → POST_PLANT_QUOTE
+      3. state.is_mid_round and not state.bomb_planted → IDLE  (no general mid-round path)
+      4. abs(theo - market.mid) > TAKE_THRESHOLD → DIRECTIONAL_TAKE
+      5. market.spread > MM_MIN_EDGE → MM_BETWEEN_ROUND
+      6. otherwise → IDLE
+
+    MM and DIRECTIONAL are first-class peers — paper trade decides which (or both) survives via the fill-count
+    gate (DEC-020). VEGA_DIRECTIONAL_THRESHOLD is REMOVED — DIRECTIONAL_TAKE triggers on |theo - market_mid|,
+    not on vega magnitude.
 
 - id: DEC-002
   title: Single DP for BO3 series + per-map (single canonical model)
@@ -158,26 +173,42 @@ The 22 decisions below are operationally locked. PRD §9 explicitly enumerates 9
     Constants prefixed `KILL_SWITCH_*` per roadmap.md §0.4 (user-resolved 2026-04-27).
 
 - id: DEC-006
-  title: Tiered ingestion confirmation by event type
-  source: prd.md §5.1
-  corroborating: roadmap.md §3.5
+  title: Tiered ingestion confirmation — collapsed for v2 (no kill-feed)
+  source: prd.md §5.1 (v2 pivot 2026-05-02)
+  corroborating: roadmap.md §3.5 (v2)
   scope: ingestion arbitration
   statement: |
-    Score change requires ≥ 2 independent sources within a 2s window.
-    Bomb plant / kill / numerical flip commits on 1 CV-based source if kill-feed cross-confirms within same frame.
-    Round-end banner is a soft commit, hard-confirmed by next score update.
-    Pre-match lineup/sides accepts a single API source.
+    v2 confirmation rules (collapsed — kill_events / numerical_flips deques are REMOVED):
+
+      Score change       → ≥ 2 sources within 2s window (rib.gg + OCR + Twitter as soft-confirm)
+      Bomb plant/defuse  → 1 OCR source — soft commit; hard-confirmed by next round-end or score
+      Round-end banner   → 1 OCR source — soft commit; hard-confirmed by next score update
+      Pre-match lineup   → API single-source
+
+    Kill-feed cross-confirmation requirements from v1 are gone because kill events / numerical flips
+    are no longer ingested. The arbiter now has 3 deques (score_changes, bomb_events, round_end_events)
+    instead of 5.
 
 - id: DEC-007
-  title: Hierarchical-lookup round-conclusion model
-  source: prd.md §5.3, §9
-  corroborating: roadmap.md §1.5
-  scope: mid-round round-win probability
+  title: Two-path round-conclusion (v2 — between-round + post-plant only)
+  source: prd.md §5.3 (v2 pivot 2026-05-02)
+  corroborating: roadmap.md §3.6 (v2)
+  scope: round-win probability
   statement: |
-    `P(team A wins this round | mid-round state)` indexed by
-    `(numerical_diff, bomb_status, side, econ_bucket, map)`. ~500–2000 cells with Bayesian shrinkage to
-    lower-dimensional parent cells when sample is thin: cell → side+map → side → overall.
-    Inherits `SHRINK_PRIOR=15`, `SIGNAL_SCALE=0.10` until ≥100 live matches of calibration data exist.
+    Two clean code paths in `live_theo`:
+
+      (a) Between-round path: round_p = side_baseline(side, map, round_idx) — fully observable from
+          scoreboard; no lookup needed. Uses pistol/anti-eco modifiers from Phase 1 for rounds 1/2/3/13/14/15.
+
+      (b) Post-plant path: round_p = post_plant_lookup(att, def, time_bucket, side, map). Hierarchical
+          fallback: (att,def,time_bucket,side,map) → (att,def,side,map) → (att,def,side) → (att,def) →
+          side_baseline. Bayesian shrinkage cell-to-parent. Inherits SHRINK_PRIOR=15, SIGNAL_SCALE=0.10.
+
+    Mid-round-not-planted: live_theo returns the between-round theo with degraded confidence; mode
+    selector maps to IDLE. NO general mid-round path.
+
+    The lookup is calibrated against the existing Phase 2 dataset filtered to bomb_planted=True
+    (~25k samples). v1 keys (numerical_diff, bomb, side, econ_bucket, map) are REPLACED.
 
 - id: DEC-008
   title: Hybrid local dev / cloud production deployment
@@ -273,13 +304,20 @@ The 22 decisions below are operationally locked. PRD §9 explicitly enumerates 9
     ship Phases 1, 3, 4 with `round_conclusion` returning fixed `p=0.5` (Path C — between-round live MM only).
 
 - id: DEC-018
-  title: Vega initial definition (refine in Phase 5)
-  source: roadmap.md §1.6
+  title: Vega — two contexts (v2 update)
+  source: roadmap.md §1.6 + prd.md §5.4 (v2 pivot 2026-05-02)
   scope: vega computation
   statement: |
-    Initial: `vega = round_p × (theo_after_a_win − theo)² + (1−round_p) × (theo_after_b_win − theo)²`
-    — variance of next theo update conditional on next round outcome. Refine in Phase 5.
-    (PRD §9 TBD #3 lists three defensible alternatives; this picks (a).)
+    TWO vega definitions, used in different modes:
+
+      vega_between_round = round_p × (theo_after_a_win − theo)² + (1−round_p) × (theo_after_b_win − theo)²
+        — variance over next round outcome. Used to size MM_BETWEEN_ROUND quote width. Phase 1 ships this.
+
+      vega_post_plant: variance over post-plant outcomes {kill, defuse, time-out}. TBD formula —
+        pick + calibrate in Phase 4 against observed post-plant theo updates.
+
+    The single VEGA_DIRECTIONAL_THRESHOLD constant from v1 is REMOVED — DIRECTIONAL_TAKE no longer
+    triggers on vega magnitude (triggers on |theo − market_mid|).
 
 - id: DEC-019
   title: Project layout — src/{pricing,state,ingestion,quoting,sizing,config}/
@@ -289,14 +327,28 @@ The 22 decisions below are operationally locked. PRD §9 explicitly enumerates 9
     Standard `src/` package layout. `tests/`, `scripts/`, `data/`, `models/`, `reference/` siblings of `src/`.
 
 - id: DEC-020
-  title: Paper-trade promotion gate
-  source: roadmap.md §5.3, §5.2
+  title: Paper-trade promotion gate (v2 — relative Brier + fill-count)
+  source: roadmap.md §5.3, §5.4 + prd.md §8 (v2 pivot 2026-05-02)
   scope: live-trading readiness
   statement: |
-    ≥ 1 full event of paper-trading with Brier < 0.22 and zero kill-switch trips for ingestion bugs
-    (model-trip kill switches are OK; bug-trip kill switches are not). Backtest validates the model alone;
-    order-fill backtest is skipped in favor of paper trading (more honest given Kalshi historical
-    order-book unavailability).
+    Promotion gate (all four required) after ≥ 1 full event of paper trading:
+
+      1. Relative Brier: Brier(model) < Brier(market_mid) − RELATIVE_BRIER_EDGE_MIN (0.02) over a
+         50-round window. Both recorded side-by-side every prediction. Absolute Brier 0.22 from v1
+         is REPLACED.
+
+      2. Fill-count gate (MM strategy): if hypothetical MM fills < MIN_FILLS_PER_MATCH (initial: 3)
+         averaged over the event, MM is cut from production. Only DIRECTIONAL_TAKE (and POST_PLANT_QUOTE
+         if active) promotes to live. This is what makes "MM and DIRECTIONAL run in parallel"
+         architecturally honest.
+
+      3. Latency: p50 event → state-commit < 500ms; bomb-detect → quote-pull p50 < 200ms;
+         quote-cancel p99 < 100ms.
+
+      4. Zero kill-switch trips for ingestion bugs (model-trip OK, bug-trip not).
+
+    Backtest validates the model alone; order-fill backtest is skipped in favor of paper trading
+    (Kalshi historical order book unavailable).
 
 - id: DEC-021
   title: Daily portfolio loss limit (distinct from per-market kill switches)
@@ -313,18 +365,74 @@ The 22 decisions below are operationally locked. PRD §9 explicitly enumerates 9
   statement: |
     Bot stays in `dry_run=True` until promotion gate is met. Live trading requires explicit CLI flag at
     the entry point. CLAUDE.md project instructions encode this PRD intent.
+
+- id: DEC-023
+  title: Portfolio Kelly with per-series aggregate cap (v2)
+  source: prd.md §2.3 + roadmap.md §4.6 (v2 pivot 2026-05-02)
+  scope: position sizing — correlation handling
+  statement: |
+    v1 sizing (half-Kelly + per-market cap) does not bound aggregate exposure across correlated markets
+    on the same series. Quoting moneyline + map-1 + map-2 + map handicaps + round handicaps simultaneously
+    can put 20%+ of bankroll on one outcome while staying within the per-market 5% cap.
+
+    v2 adds a per-series aggregate cap layered over the per-market cap:
+
+      kelly_size(theo, ask, bankroll, series_id, current_series_exposure):
+        f = max(0, KELLY_MULTIPLIER * f_full)
+        f = min(f, PER_MARKET_CAP_FRAC)                    # per-market floor: 0.05
+        headroom = max(0, SERIES_AGGREGATE_CAP_FRAC - current_series_exposure[series_id])
+        f = min(f, headroom)                                # per-series floor: 0.10
+        return 0 if f == 0 else int(f * bankroll / ask)
+
+    SERIES_AGGREGATE_CAP_FRAC = 0.10 initial; recalibrate after first paper-trade event from observed
+    inter-market correlation.
+
+    This is the v1 floor — full covariance-aware portfolio Kelly with per-series correlation matrix is
+    Phase 7 maturity work (roadmap §7.5), not Phase 4. The simple aggregate cap is "safe-enough for
+    paper trade", not "correct".
+
+- id: DEC-024
+  title: OCR scope cut to three HUD targets (v2)
+  source: prd.md §5.1 + roadmap.md §3.3 (v2 pivot 2026-05-02)
+  scope: ingestion CV scope
+  statement: |
+    OCR/CV scope is THREE broadcast HUD elements only:
+
+      Score banner       — 250ms cadence — score-change events
+      Bomb-plant icon    — 500ms cadence — plant/defuse → POST_PLANT_QUOTE + defensive quote-pull
+      Round-end banner   — 100ms during round-end window — soft round-outcome commit (~500ms before scoreboard)
+
+    Tesseract handles all three (small text, low cadence, high contrast). CPU-only.
+
+    EXPLICITLY OUT OF SCOPE (v2 cuts):
+      - Kill-feed CV
+      - Mid-round economy inference
+      - Ult-count tracking
+      - ONNX runtime, ONNX kill-feed CNN, CTC decoder
+      - GPU dependency
+      - vision_parser.py salvage from sibling thunderedge/ repo
+
+    When bomb_planted=True, a separate post-plant attackers/defenders-alive HUD widget is parsed at
+    250ms cadence (much simpler than full kill-feed parsing — single integer per side, high contrast).
+
 </decisions>
 
 ---
 
 ## Open TBDs (deferred from PRD §9, intentional)
 
-These are flagged here so plan-phase agents know they are not yet locked:
+v2-pivoted list (2026-05-02):
 
 1. **Bankroll size and per-market exposure cap.** Operational; depends on capital allocation decision. `PER_MARKET_CAP_FRAC = 0.05` is a placeholder.
-2. **Threshold values.** `VEGA_DIRECTIONAL_THRESHOLD = 0.04` and the four kill-switch constants ship with initial guesses, re-tune after 20+ live matches (Phase 5 calibration).
-3. **Vega formula refinement.** DEC-018 picks variant (a); revisit in Phase 5 if observed predictive variance underperforms.
-4. **Backtest fidelity.** DEC-020 skips order-fill backtest in favor of paper trading. Reconsider if Kalshi exposes historical order-book data.
+2. **Aggregate cap calibration.** `SERIES_AGGREGATE_CAP_FRAC = 0.10` is a defensive initial guess (DEC-023). After first paper-trade event with real correlation data, recompute from observed inter-market beta.
+3. **Mode-selector thresholds.** `TAKE_THRESHOLD`, `MM_MIN_EDGE`, `POST_PLANT_TAKE_THRESHOLD`, `MIN_HALF_SPREAD` — all initial values TBD; calibrate from observed market structure during paper trade.
+4. **Kill-switch numerical values** (5s, 20¢, 0.30, 50-round Brier window) and `MIN_FILLS_PER_MATCH` — initial guesses, re-tune after 20+ live matches (Phase 5 calibration).
+5. **Post-plant vega formula.** DEC-018 ships between-round vega; post-plant variant TBD — pick a formula in Phase 4, calibrate against observed post-plant theo updates in Phase 5.
+6. **Full covariance-aware portfolio Kelly.** Phase 7 maturity work (roadmap §7.5). Per-series correlation matrix derived from paper-trade Brier history.
+7. **Backtest fidelity.** DEC-020 skips order-fill backtest in favor of paper trading. Reconsider if Kalshi exposes historical order-book data.
+8. **Phase 2 dataset post-plant completeness.** Phase 3 must verify the captured `mid_round_states[]` schema includes `attackers_alive`, `defenders_alive`, `time_remaining` at bomb-plant moments. If missing, partial Phase 2 ETL re-run scoped to post-plant (DEC-007 implementation requirement).
+
+REMOVED from v1 TBD list: `VEGA_DIRECTIONAL_THRESHOLD = 0.04` (constant deleted — see DEC-018 v2 update).
 
 See `prd.md` §9 and `.planning/intel/context.md / Open questions still TBD` for full framing.
 

@@ -1,8 +1,10 @@
 # REQUIREMENTS — Valorant Live Pricing Model
 
-**Source of truth:** `prd.md` (root) for design intent; `roadmap.md` (root) for build sequencing and acceptance criteria. This file enumerates the 37 requirements derived from those docs by `gsd-doc-synthesizer`, grouped by the phase they belong to.
+**Source of truth:** `prd.md` (root) for design intent; `roadmap.md` (root) for build sequencing and acceptance criteria. This file enumerates the requirements derived from those docs, grouped by the phase they belong to.
 
-Each REQ has a stable slug-ID, a single source-of-truth section, scope, description, and (where source provides) acceptance criteria. Phase mappings come from `roadmap.md` and `.planning/intel/requirements.md`.
+> **v2 architecture pivot (2026-05-02):** Phase 3/4/5 REQs restructured. Cut: kill-feed CV, mid-round economy, ult tracking, single-vega DIRECTIONAL trigger. Added: REQ-post-plant-quoter, REQ-portfolio-kelly-aggregate-cap. Modified: REQ-mode-selector (three-way + IDLE), REQ-mm-quoter (between-round only), REQ-directional-taker (first-class peer), REQ-kelly-sizer (portfolio-aware), REQ-ocr-pipeline (3 HUD targets only), REQ-cross-source-arbiter (3 deques), REQ-match-state-engine (fewer fields), REQ-round-conclusion-lookup (rekeyed post-plant only), REQ-paper-trading (relative Brier + fill-count gate).
+
+Each REQ has a stable slug-ID, a single source-of-truth section, scope, description, and (where source provides) acceptance criteria.
 
 For full intel form (raw extraction notes), see `.planning/intel/requirements.md`. For locked decisions referenced below (DEC-*), see `.planning/PROJECT.md` `<decisions>` blocks.
 
@@ -59,11 +61,11 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 - **Description:** Hard-stop at `total = 24` (DEC-009). At 12-12 boundary leaf: `0.5 × value(after_a_OT_win) + 0.5 × value(after_b_OT_win)`; OT play continues with constant `p = 0.5` until someone is up by 2.
 - **Acceptance:** DP must not silently iterate past `total = 24` with `p = 0.5`; explicit OT-coinflip leaf documented in code.
 
-### REQ-round-conclusion-lookup
-- **Source:** roadmap.md §1.5; prd.md §5.3
-- **Scope:** mid-round pricing
-- **Description:** Hierarchical fallback chain (DEC-007): `(numerical_diff, bomb, side, econ_bucket, map) → (numerical_diff, bomb, side, map) → (numerical_diff, bomb, side) → (numerical_diff, bomb) → side baseline`. Bayesian shrinkage cell-to-parent. Persist as nested dict, JSON-serialized, sub-microsecond lookup.
-- **Note:** Skeleton built in Phase 1; calibration of cell values blocked by Phase 2 data.
+### REQ-round-conclusion-lookup (REKEYED v2)
+- **Source:** roadmap.md §3.6; prd.md §5.3 (v2 pivot)
+- **Scope:** post-plant pricing (no general mid-round)
+- **Description:** Hierarchical fallback chain (DEC-007 v2): `(att, def, time_bucket, side, map) → (att, def, side, map) → (att, def, side) → (att, def) → side baseline`. Bayesian shrinkage cell-to-parent. Persist as nested dict, JSON-serialized, sub-microsecond lookup. **Filtered to bomb_planted=True rounds only.** Between-round and mid-round-not-planted use `live_theo`'s side-baseline path; lookup is NOT consulted in those states.
+- **Note:** Skeleton + v1 calibration data shipped via Phase 1/2. **Phase 3 rekeys to v2 schema** by filtering the existing 1000-match / 42586-round dataset to ~25k post-plant samples and recomputing cells. Phase 3 verifies the captured `mid_round_states[]` schema includes the required fields; partial Phase 2 ETL re-run scoped to post-plant if missing.
 
 ### REQ-canonical-live-theo
 - **Source:** roadmap.md §1.6; prd.md §6, §12.3
@@ -87,11 +89,13 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 - **Scope:** pricing output contract
 - **Description:** Return `confidence ∈ [0, 1]` representing data-weight in the prediction.
 
-### REQ-vega-output
-- **Source:** prd.md §2; roadmap.md §1.6
+### REQ-vega-output (TWO CONTEXTS v2)
+- **Source:** prd.md §2, §5.4; roadmap.md §1.6 (v2 pivot)
 - **Scope:** pricing output contract
-- **Description:** Return `vega` representing variance of the next theo update; drives quote width and DIRECTIONAL-mode override threshold.
-- **Acceptance:** initial implementation per DEC-018: `vega = round_p × (theo_after_a_win − theo)² + (1−round_p) × (theo_after_b_win − theo)²`.
+- **Description:** Return TWO vega values, used in different modes (DEC-018 v2):
+  - `vega_between_round` = `round_p × (theo_after_a_win − theo)² + (1−round_p) × (theo_after_b_win − theo)²` — variance over next round outcome. Sizes MM_BETWEEN_ROUND quote width.
+  - `vega_post_plant` = variance over post-plant outcomes {kill, defuse, time-out}. **TBD formula** — picked + calibrated in Phase 4 against observed post-plant theo updates.
+- **Acceptance:** Phase 1 ships `vega_between_round`. `vega_post_plant` ships in Phase 4. The single `VEGA_DIRECTIONAL_THRESHOLD` constant from v1 is REMOVED — DIRECTIONAL_TAKE triggers on `|theo − market_mid|`, not on vega magnitude.
 
 ### REQ-end-to-end-latency
 - **Source:** prd.md §2
@@ -115,42 +119,45 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 
 ## Phase 3 — Live ingestion layer
 
-### REQ-match-state-engine
-- **Source:** roadmap.md §3.1; prd.md §5.2
+### REQ-match-state-engine (RESCOPED v2)
+- **Source:** roadmap.md §3.1; prd.md §5.2 (v2 pivot)
 - **Scope:** state engine
-- **Description:** Single `@dataclass MatchState` with fields:
-  `match_id, map_idx, a_map_score, b_map_score, a_round, b_round, side_orient, econ_a, econ_b, ults_a, ults_b, players_alive_a, players_alive_b, bomb_planted, time_left_s, seq_id, last_updated_ts`.
-  Versioned via monotonic `seq_id`. Mutators bump `seq_id`. Append every mutation to JSONL event log on disk.
-- **Acceptance:** quoting layer only acts on monotonically-increasing seq_ids.
+- **Description:** Single `@dataclass(frozen=True, slots=True) MatchState` at `src/state/match_state.py` with fields:
+  `match_id, map_idx, a_map_score, b_map_score, a_round, b_round, side_orient, bomb_planted, attackers_alive | None, defenders_alive | None, time_left_s | None, seq_id, last_updated_ts`.
+  `attackers_alive` / `defenders_alive` populated only when `bomb_planted=True`. Versioned via monotonic `seq_id`. Mutators (`with_update(...)`) bump `seq_id` and append every mutation to a JSONL event log on disk.
+- **Cut from v1 schema:** `econ_a/b` (not directly observable from broadcast), `ults_a/b` (cut from scope per DEC-024), `players_alive_a/b` (cut — replaced by post-plant-only `attackers_alive` / `defenders_alive` from a separate HUD widget).
+- **Acceptance:** quoting layer only acts on monotonically-increasing seq_ids; `seq_id` strictly monotonic over 1000 random `with_update` calls; JSONL replay reproduces final state.
 
 ### REQ-scoreboard-polling
 - **Source:** roadmap.md §3.2
 - **Scope:** ingestion source
 - **Description:** Poll rib.gg / bo3.gg / vlr.gg live endpoints every 5s. Reuse `vlr_scraper.py` / `rib_scraper.py` patterns from existing repo. Authoritative but slowest source.
 
-### REQ-ocr-pipeline
-- **Source:** roadmap.md §3.3; prd.md §5.1
+### REQ-ocr-pipeline (RESCOPED v2 — three HUD targets only)
+- **Source:** roadmap.md §3.3; prd.md §5.1 (v2 pivot — DEC-024)
 - **Scope:** ingestion source
-- **Description:** Port `vision_parser.py` into `src/ingestion/ocr.py`. Targets and cadences:
-  - Score banner: every 250 ms → score-change events
-  - Kill feed: every 100 ms → kill events, infer numerical state
-  - Bomb icon: every 500 ms → plant/defuse events
-  - Round-end banner: every 100 ms during round-end window → "predicted round outcome"
-- **Acceptance:** 50 ms decode + 50 ms inference per frame. GPU if available; else tesseract + small CNNs.
+- **Description:** `src/ingestion/ocr.py` with **three** broadcast HUD targets, tesseract-only, CPU-only:
+  - **Score banner**: 250 ms cadence → score-change events
+  - **Bomb-plant icon**: 500 ms cadence → plant/defuse events; drives POST_PLANT_QUOTE + defensive quote-pull
+  - **Round-end banner**: 100 ms during round-end window → predicted round outcome (~500 ms before scoreboard updates)
+
+  When `bomb_planted=True`, a separate post-plant attackers/defenders-alive HUD widget is parsed at 250 ms cadence (single integer per side, high contrast — much simpler than full kill-feed parsing).
+- **Cut from v1 scope (per DEC-024):** kill-feed CV, ult-count tracking, mid-round economy inference, ONNX runtime, CTC decoder, GPU dependency, `vision_parser.py` salvage.
+- **Acceptance:** decode + inference < 100 ms median per frame across the three primary targets; per-target cadence within ±10% jitter under sustained load.
 
 ### REQ-text-listener
 - **Source:** roadmap.md §3.4
 - **Scope:** ingestion source
 - **Description:** Twitter API v2 streaming filter on match-related hashtags / accounts. Soft signal only — never sole-source confirmation.
 
-### REQ-cross-source-arbiter
-- **Source:** roadmap.md §3.5; prd.md §5.1
+### REQ-cross-source-arbiter (SIMPLIFIED v2 — 3 deques)
+- **Source:** roadmap.md §3.5; prd.md §5.1 (v2 pivot — DEC-006 v2)
 - **Scope:** ingestion arbitration
-- **Description:** Three-queue pipeline: `sources → pending_updates → arbiter → confirmed_updates → state engine`; quarantined updates logged but not committed. Per-event-type rules per DEC-006:
-  - score change: ≥ 2 independent sources within 2s window
-  - bomb plant / kill / numerical flip: 1 CV-based source if kill-feed cross-confirms within same frame
-  - round-end banner: soft commit, hard-confirmed by next score update
-  - pre-match lineup, sides: API single-source
+- **Description:** Three-queue pipeline: `sources → pending_updates → arbiter → confirmed_updates → state engine`; quarantined updates logged but not committed. Per-event-type deques (3 — was 5 in v1; `kill_events` and `numerical_flips` removed):
+  - **score_changes**: ≥ 2 independent sources within 2s window (rib.gg + OCR + Twitter as soft-confirm)
+  - **bomb_events**: 1 OCR source — soft commit; hard-confirmed by next round-end or score
+  - **round_end_events**: 1 OCR source — soft commit; hard-confirmed by next score update
+  - pre-match lineup, sides: API single-source (no deque needed)
 
 ### REQ-latency-instrumentation
 - **Source:** roadmap.md §3.6
@@ -166,26 +173,59 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 - **Scope:** order plumbing
 - **Description:** Extract from `reference/market_maker.py` (per DEC-013): `Quote` dataclass, `_place_quote`, `_cancel_quote`, `cancel_all_orders`, error-streak retry, `_is_near_close` close-time guard, dry-run mode.
 
-### REQ-mode-selector
-- **Source:** roadmap.md §4.2; prd.md §2.1
+### REQ-mode-selector (RESTRUCTURED v2 — three-way + IDLE)
+- **Source:** roadmap.md §4.2; prd.md §2.1 (v2 pivot — DEC-001 v2)
 - **Scope:** trading mode
-- **Description:** A pure function `trading_mode(state, vega) → Literal["MM", "DIRECTIONAL"]` evaluating event triggers (numerical imbalance, bomb planted, map-point, decider) before vega override (DEC-001).
-- **Acceptance:** rules evaluated in PRD §2.1 order; reset to MM at round end + 5v5 + no flags.
+- **Description:** Pure function:
+  ```
+  trading_mode(state, theo, market, vega_between, vega_post_plant, kill_switch_active)
+    → Literal["MM_BETWEEN_ROUND", "DIRECTIONAL_TAKE", "POST_PLANT_QUOTE", "IDLE"]
+  ```
+  Selection logic (in order):
+  1. `kill_switch_active` → IDLE
+  2. `state.bomb_planted` → POST_PLANT_QUOTE
+  3. `state.is_mid_round and not state.bomb_planted` → IDLE (no general mid-round path)
+  4. `abs(theo - market.mid) > TAKE_THRESHOLD` → DIRECTIONAL_TAKE
+  5. `market.spread > MM_MIN_EDGE` → MM_BETWEEN_ROUND
+  6. otherwise → IDLE
+- **Acceptance:** rules evaluated in declared order; mode is a deterministic function of inputs (no hidden state); MM_BETWEEN_ROUND and DIRECTIONAL_TAKE are first-class peers (no "default" mode).
 
-### REQ-mm-quoter
-- **Source:** roadmap.md §4.3; prd.md §5.4
+### REQ-mm-quoter (NARROWED v2 — between-round only)
+- **Source:** roadmap.md §4.3; prd.md §5.4 (v2 pivot)
 - **Scope:** market-making
-- **Description:** Quote `theo ± vega-scaled spread`. Replace fixed `quote_width` with `max(MIN_HALF_SPREAD, k × sqrt(vega))`. Add staleness penalty: `time_since_last_state_update > 2s` → widen aggressively or pull. Skew quotes when adverse-selection risk is high.
+- **Description:** Active only when `mode == MM_BETWEEN_ROUND`. Quote `theo ± vega-scaled spread` using `vega_between_round`. `spread = max(MIN_HALF_SPREAD, k × sqrt(vega_between)) + staleness_penalty`. **Spread floor must beat Kalshi commission + slippage** to avoid lossy quotes. `time_since_last_state_update > 2s` → widen or pull. Skew when adverse-selection risk is high. Hypothetical fills tracked on a SEPARATE LEDGER from DIRECTIONAL_TAKE during paper trade for fill-count gate evaluation (DEC-020 v2).
 
-### REQ-directional-taker
-- **Source:** roadmap.md §4.4; prd.md §2.1
-- **Scope:** directional trading
-- **Description:** When `|theo_cents − market_mid| > TAKE_THRESHOLD`, lift the offer (or hit the bid). Sized by half-Kelly per REQ-kelly-sizer.
+### REQ-directional-taker (FIRST-CLASS PEER v2)
+- **Source:** roadmap.md §4.4; prd.md §2.1 (v2 pivot)
+- **Scope:** directional trading — first-class strategy
+- **Description:** Active when `mode == DIRECTIONAL_TAKE`. When `|theo_cents − market_mid| > TAKE_THRESHOLD`, lift the offer (or hit the bid). Sized by REQ-kelly-sizer (portfolio-aware v2). **Runs on its own hypothetical-fill ledger during paper trade**, parallel to MM. Promotion gate (DEC-020 v2) evaluates the two ledgers independently — DIRECTIONAL_TAKE can promote even if MM is cut for thin fills.
 
-### REQ-kelly-sizer
-- **Source:** roadmap.md §4.5; prd.md §2.3
-- **Scope:** position sizing
-- **Description:** `kelly_size(theo: float, market_yes_ask: float, bankroll: float) → int contracts`. Internal: `b = (1 − ask) / ask`, `f_full = (b*p − q) / b`, `f = max(0, KELLY_MULTIPLIER × f_full)`, `f = min(f, PER_MARKET_CAP_FRAC)`, returns `int(f × bankroll / market_yes_ask)`. Implements DEC-004.
+### REQ-post-plant-quoter (NEW v2)
+- **Source:** roadmap.md §4.5; prd.md §2.1, §5.4 (v2 pivot)
+- **Scope:** post-plant pricing + defensive quote-pull
+- **Description:** Active when `mode == POST_PLANT_QUOTE`. Three actions on bomb-plant detection:
+  1. **Defensive quote-pull** within 200 ms (latency-critical — cancel any resting between-round MM quotes).
+  2. **Re-price** using `live_theo(state)` post-plant code path (post-plant lookup keyed on `(att, def, time_bucket, side, map)`).
+  3. **Take or quote**: take if `|theo − market| > POST_PLANT_TAKE_THRESHOLD` (narrower than between-round take); otherwise quote at theo ± narrow spread (high-conviction state).
+- **Acceptance:** bomb-detect → quote-pull p50 < 200 ms; re-price uses post-plant lookup, not between-round path.
+
+### REQ-kelly-sizer (PORTFOLIO-AWARE v2)
+- **Source:** roadmap.md §4.6; prd.md §2.3 (v2 pivot — DEC-023)
+- **Scope:** position sizing — correlation handling
+- **Description:** `kelly_size(theo, market_yes_ask, bankroll, series_id, current_series_exposure) → int contracts`.
+  Internal:
+  ```
+  b = (1 − ask) / ask
+  f_full = (b*p − q) / b
+  f = max(0, KELLY_MULTIPLIER * f_full)
+  f = min(f, PER_MARKET_CAP_FRAC)                          # per-market cap (0.05)
+  headroom = max(0, SERIES_AGGREGATE_CAP_FRAC - current_series_exposure[series_id])
+  f = min(f, headroom)                                      # per-series aggregate cap (0.10)
+  return 0 if f == 0 else int(f * bankroll / ask)
+  ```
+  The aggregate cap bounds correlated exposure across moneyline + map handicaps + round handicaps on the same series. Returns 0 if aggregate cap already exceeded.
+- **Acceptance:** sizing identical to v1 single-market case (when exposure is 0); aggregate cap kicks in when sum of fractional exposures across the series exceeds `SERIES_AGGREGATE_CAP_FRAC`.
+- **Note:** This is the v1 floor. Full covariance-aware portfolio Kelly is REQ-portfolio-correlation-kelly (Phase 7).
 
 ### REQ-kill-switches
 - **Source:** roadmap.md §4.6; prd.md §5.4
@@ -219,11 +259,19 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 - **Scope:** validation
 - **Description:** Replay past season's matches against `live_theo` running on synthetic state from `match_round_data`. Compute Brier per state-bucket (early-game, mid-game, post-plant, etc.). No fills — model-only validation. Order-fill backtest skipped in favor of paper trading (DEC-020).
 
-### REQ-paper-trading
-- **Source:** roadmap.md §5.3
+### REQ-paper-trading (RECALIBRATED GATES v2)
+- **Source:** roadmap.md §5.3, §5.4; prd.md §8 (v2 pivot — DEC-020 v2)
 - **Scope:** live-readiness validation
-- **Description:** Run full bot with `dry_run=True` against live Kalshi matches. Track hypothetical fills, hypothetical P&L, realized Brier per round prediction, latency p50/p99 from event → quote.
-- **Acceptance:** Promotion gate per DEC-020 — ≥ 1 full event with Brier < 0.22 and zero kill-switch trips for ingestion bugs (model-trip kill switches are OK; bug-trip kill switches are not).
+- **Description:** Run full bot with `dry_run=True` against live Kalshi matches. Track:
+  - Hypothetical fills on **two separate ledgers** (MM and DIRECTIONAL); POST_PLANT events tracked separately
+  - Hypothetical P&L per ledger
+  - Realized Brier per round prediction — **AND `Brier(market_mid)` recorded side-by-side**
+  - Latency p50, p99 per pipeline stage; bomb-detect → quote-pull p50
+- **Acceptance:** Promotion gate per DEC-020 v2 (all four required):
+  1. **Relative Brier:** `Brier(model) < Brier(market_mid) − 0.02` over a 50-round window. If model ≥ market, do NOT deploy.
+  2. **Fill-count gate (MM):** if hypothetical MM fills < `MIN_FILLS_PER_MATCH` (initial: 3) averaged over the event, MM is cut from production. Only DIRECTIONAL_TAKE (and POST_PLANT_QUOTE if active) promotes to live.
+  3. **Latency:** p50 event → state-commit < 500 ms; bomb-detect → quote-pull p50 < 200 ms; quote-cancel p99 < 100 ms.
+  4. **Zero kill-switch trips for ingestion bugs** (model-trip OK, bug-trip not).
 
 ### REQ-calibration-loop
 - **Source:** roadmap.md §5.4
@@ -286,7 +334,13 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 ### REQ-portfolio-loss-limit
 - **Source:** roadmap.md §7.4
 - **Scope:** risk controls
-- **Description:** Daily loss limit halts bot when cumulative realized + unrealized P&L < −X% of bankroll until manual review. Distinct from per-market kill switches (DEC-021).
+- **Description:** Daily loss limit halts bot when cumulative realized + unrealized P&L < −X% of bankroll until manual review. Distinct from per-market kill switches (DEC-021) and from per-series aggregate cap (DEC-023 — that bounds exposure, this halts on realized loss).
+
+### REQ-portfolio-correlation-kelly (NEW v2 — Phase 7 maturity)
+- **Source:** roadmap.md §7.5; prd.md §2.3 (v2 pivot — DEC-023)
+- **Scope:** portfolio-level Kelly sizing
+- **Description:** Replace the simple per-series aggregate cap (REQ-kelly-sizer v2) with covariance-aware portfolio Kelly. Inputs: per-series correlation matrix derived from paper-trade + live Brier history across moneyline / map handicap / round handicap markets. Output: position sizing that accounts for inter-market correlation rather than just bounding aggregate fractional exposure.
+- **Acceptance:** Phase 7 work, not Phase 4. Triggered when sufficient post-paper-trade correlation data exists. The simple aggregate cap remains the floor.
 
 ---
 
@@ -313,12 +367,13 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 | REQ-cross-source-arbiter | 3 | roadmap §3.5 / prd §5.1 |
 | REQ-latency-instrumentation | 3 | roadmap §3.6 |
 | REQ-kalshi-order-manager | 4 | roadmap §4.1 |
-| REQ-mode-selector | 4 | roadmap §4.2 / prd §2.1 |
-| REQ-mm-quoter | 4 | roadmap §4.3 / prd §5.4 |
-| REQ-directional-taker | 4 | roadmap §4.4 / prd §2.1 |
-| REQ-kelly-sizer | 4 | roadmap §4.5 / prd §2.3 |
-| REQ-kill-switches | 4 | roadmap §4.6 / prd §5.4 |
-| REQ-order-lifecycle-reconciliation | 4 | roadmap §4.7 |
+| REQ-mode-selector | 4 | roadmap §4.2 / prd §2.1 (v2) |
+| REQ-mm-quoter | 4 | roadmap §4.3 / prd §5.4 (v2) |
+| REQ-directional-taker | 4 | roadmap §4.4 / prd §2.1 (v2) |
+| REQ-post-plant-quoter | 4 | roadmap §4.5 / prd §2.1 (NEW v2) |
+| REQ-kelly-sizer | 4 | roadmap §4.6 / prd §2.3 (v2 portfolio-aware) |
+| REQ-kill-switches | 4 | roadmap §4.7 / prd §5.4 |
+| REQ-order-lifecycle-reconciliation | 4 | roadmap §4.8 |
 | REQ-unit-and-property-tests | 5 (and ongoing) | roadmap §5.1 |
 | REQ-backtest | 5 | roadmap §5.2 |
 | REQ-paper-trading | 5 | roadmap §5.3 |
@@ -333,5 +388,6 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 | REQ-weekly-drift-detection | 7 | roadmap §7.2 |
 | REQ-incident-runbook | 7 | roadmap §7.3 |
 | REQ-portfolio-loss-limit | 7 | roadmap §7.4 |
+| REQ-portfolio-correlation-kelly | 7 | roadmap §7.5 / prd §2.3 (NEW v2) |
 
-**Coverage:** 37/37 requirements mapped across Phases 1–7. Phase 0 has no REQs (bootstrap-only; constraints in `intel/constraints.md` cover its scope).
+**Coverage:** 39/39 requirements mapped across Phases 1–7 (was 37 in v1; +REQ-post-plant-quoter, +REQ-portfolio-correlation-kelly). Phase 0 has no REQs (bootstrap-only; constraints in `intel/constraints.md` cover its scope).
