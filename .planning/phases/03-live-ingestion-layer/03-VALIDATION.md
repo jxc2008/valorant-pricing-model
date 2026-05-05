@@ -41,24 +41,24 @@ created: 2026-05-02
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 03-WAVE0 | 00 | 0 | infra | — | N/A | infra | `pip install -e ".[dev]" && pytest tests/ -x` | ❌ W0 | ⬜ pending |
-| 03-MS-01 | match-state | 2 | REQ-match-state-engine | — | seq_id strictly monotonic — replay determinism | property | `pytest tests/state/test_match_state.py::test_seq_id_monotonic_1000_mutators -x` | ❌ W0 | ⬜ pending |
-| 03-MS-02 | match-state | 2 | REQ-match-state-engine | — | `with_update` strips caller-provided `seq_id`/`last_updated_ts` | unit | `pytest tests/state/test_match_state.py::test_with_update_strips_seq_id -x` | ❌ W0 | ⬜ pending |
-| 03-MS-03 | match-state | 2 | REQ-match-state-engine | — | JSONL replay round-trip → identical final state | property | `pytest tests/state/test_match_state.py::test_jsonl_replay_round_trip -x` | ❌ W0 | ⬜ pending |
-| 03-SP-01 | scoreboard | 3 | REQ-scoreboard-polling | — | Monkeypatched `requests.get` → typed events at 5s cadence | integration | `pytest tests/ingestion/test_scoreboard.py -x` | ❌ W0 | ⬜ pending |
-| 03-SP-02 | scoreboard | 3 | REQ-scoreboard-polling | — | `Connection: close` + `_ribgg_wait` resilience patterns honored | unit | `pytest tests/ingestion/test_scoreboard.py::test_resilience_patterns -x` | ❌ W0 | ⬜ pending |
-| 03-OC-01 | ocr (03-05b) | 3 | REQ-ocr-pipeline | — | 50-frame median decode + inference < 100ms per target | benchmark | `pytest tests/ingestion/test_ocr.py::test_ocr_benchmark_50_frames -x` | ❌ W0 | ⬜ pending |
-| 03-OC-02 | ocr (03-05b) | 3 | REQ-ocr-pipeline | — | Per-target cadence within ±10% jitter under sustained load | integration | `pytest tests/ingestion/test_ocr.py::test_per_target_cadence -x` | ❌ W0 | ⬜ pending |
-| 03-OC-03 | ocr (03-05b) | 3 | REQ-ocr-pipeline | — | Confidence below `OCR_KILLFEED_CONF_THRESHOLD` → no event emitted (Pitfall 2) | unit | `pytest tests/ingestion/test_ocr.py::test_low_confidence_drop -x` | ❌ W0 | ⬜ pending |
-| 03-TX-01 | text-listener | 3 | REQ-text-listener | — | Mocked Twitter stream → typed soft-events emitted | integration | `pytest tests/ingestion/test_text_listener.py -x` | ❌ W0 | ⬜ pending |
-| 03-TX-02 | text-listener | 3 | REQ-text-listener | — | Twitter-only state-change quarantined, never committed | unit | `pytest tests/ingestion/test_text_listener.py::test_twitter_only_quarantined -x` | ❌ W0 | ⬜ pending |
-| 03-TX-03 | text-listener | 3 | REQ-text-listener | — | Missing `TWITTER_BEARER_TOKEN` → listener no-ops, no exception | unit | `pytest tests/ingestion/test_text_listener.py::test_no_token_noop -x` | ❌ W0 | ⬜ pending |
-| 03-AR-01 | arbiter (03-07b) | 4 | REQ-cross-source-arbiter | — | Rule matrix: 15 (source × event_type) combos fire correctly per DEC-006 | property | `pytest tests/ingestion/test_arbiter.py::test_rule_matrix -x` | ❌ W0 | ⬜ pending |
-| 03-AR-02 | arbiter (03-07b) | 4 | REQ-cross-source-arbiter | — | Quarantined events appear in JSONL with `quarantined: true`, `seq_id: null` | unit | `pytest tests/ingestion/test_arbiter.py::test_quarantine_log_shape -x` | ❌ W0 | ⬜ pending |
-| 03-AR-03 | arbiter (03-07b) | 4 | REQ-cross-source-arbiter | — | Score-change rule: ≥2 sources within 2s → fire; else quarantine | property | `pytest tests/ingestion/test_arbiter.py::test_score_change_window -x` | ❌ W0 | ⬜ pending |
-| 03-LI-01 | latency (03-07b) | 4 | REQ-latency-instrumentation | — | Every confirmed event in JSONL has all six timestamp fields (Phase 4 = None) | unit | `pytest tests/ingestion/test_arbiter.py::test_six_stage_timestamps -x` | ❌ W0 | ⬜ pending |
-| 03-LI-02 | latency (03-07b) | 4 | REQ-latency-instrumentation | — | Metrics file parseable line-by-line; `t_observed` ascending | unit | `pytest tests/ingestion/test_arbiter.py::test_metrics_parseable -x` | ❌ W0 | ⬜ pending |
-| 03-E2E-01 | e2e | 5 | REQ-end-to-end-latency | — | E2E synthetic ≥30 events: p50 `t_observed → t_state_committed` < 500ms | integration | `pytest tests/ingestion/test_e2e.py::test_e2e_p50_latency -x` | ❌ W0 | ⬜ pending |
-| 03-E2E-02 | e2e | 5 | REQ-end-to-end-latency | — | E2E synthetic: `theo_series` non-degenerate (∈ (0.01, 0.99), not 0.5) | integration | `pytest tests/ingestion/test_e2e.py::test_e2e_theo_non_degenerate -x` | ❌ W0 | ⬜ pending |
+| 03-MS-01 | match-state | 1 | REQ-match-state-engine | — | seq_id strictly monotonic — replay determinism | property | `pytest tests/state/test_match_state.py::test_seq_id_monotonic_1000_mutators -x` | ❌ W0 | ⬜ pending |
+| 03-MS-02 | match-state | 1 | REQ-match-state-engine | — | `with_update` strips caller-provided `seq_id`/`last_updated_ts` | unit | `pytest tests/state/test_match_state.py::test_with_update_strips_seq_id -x` | ❌ W0 | ⬜ pending |
+| 03-MS-03 | match-state | 1 | REQ-match-state-engine | — | JSONL replay round-trip → identical final state | property | `pytest tests/state/test_match_state.py::test_jsonl_replay_round_trip -x` | ❌ W0 | ⬜ pending |
+| 03-SP-01 | scoreboard | 2 | REQ-scoreboard-polling | — | Monkeypatched `requests.get` → typed events at 5s cadence | integration | `pytest tests/ingestion/test_scoreboard.py -x` | ❌ W0 | ⬜ pending |
+| 03-SP-02 | scoreboard | 2 | REQ-scoreboard-polling | — | `Connection: close` + `_ribgg_wait` resilience patterns honored | unit | `pytest tests/ingestion/test_scoreboard.py::test_resilience_patterns -x` | ❌ W0 | ⬜ pending |
+| 03-OC-01 | ocr | 2 | REQ-ocr-pipeline | — | 50-frame median decode + inference < 100ms per target | benchmark | `pytest tests/ingestion/test_ocr.py::test_ocr_benchmark_50_frames -x` | ❌ W0 | ⬜ pending |
+| 03-OC-02 | ocr | 2 | REQ-ocr-pipeline | — | Per-target cadence within ±10% jitter under sustained load | integration | `pytest tests/ingestion/test_ocr.py::test_per_target_cadence -x` | ❌ W0 | ⬜ pending |
+| 03-OC-03 | ocr | 2 | REQ-ocr-pipeline | — | Confidence below `OCR_KILLFEED_CONF_THRESHOLD` → no event emitted (Pitfall 2) | unit | `pytest tests/ingestion/test_ocr.py::test_low_confidence_drop -x` | ❌ W0 | ⬜ pending |
+| 03-TX-01 | text-listener | 2 | REQ-text-listener | — | Mocked Twitter stream → typed soft-events emitted | integration | `pytest tests/ingestion/test_text_listener.py -x` | ❌ W0 | ⬜ pending |
+| 03-TX-02 | text-listener | 2 | REQ-text-listener | — | Twitter-only state-change quarantined, never committed | unit | `pytest tests/ingestion/test_text_listener.py::test_twitter_only_quarantined -x` | ❌ W0 | ⬜ pending |
+| 03-TX-03 | text-listener | 2 | REQ-text-listener | — | Missing `TWITTER_BEARER_TOKEN` → listener no-ops, no exception | unit | `pytest tests/ingestion/test_text_listener.py::test_no_token_noop -x` | ❌ W0 | ⬜ pending |
+| 03-AR-01 | arbiter | 3 | REQ-cross-source-arbiter | — | Rule matrix: 15 (source × event_type) combos fire correctly per DEC-006 | property | `pytest tests/ingestion/test_arbiter.py::test_rule_matrix -x` | ❌ W0 | ⬜ pending |
+| 03-AR-02 | arbiter | 3 | REQ-cross-source-arbiter | — | Quarantined events appear in JSONL with `quarantined: true`, `seq_id: null` | unit | `pytest tests/ingestion/test_arbiter.py::test_quarantine_log_shape -x` | ❌ W0 | ⬜ pending |
+| 03-AR-03 | arbiter | 3 | REQ-cross-source-arbiter | — | Score-change rule: ≥2 sources within 2s → fire; else quarantine | property | `pytest tests/ingestion/test_arbiter.py::test_score_change_window -x` | ❌ W0 | ⬜ pending |
+| 03-LI-01 | latency | 3 | REQ-latency-instrumentation | — | Every confirmed event in JSONL has all six timestamp fields (Phase 4 = None) | unit | `pytest tests/ingestion/test_arbiter.py::test_six_stage_timestamps -x` | ❌ W0 | ⬜ pending |
+| 03-LI-02 | latency | 3 | REQ-latency-instrumentation | — | Metrics file parseable line-by-line; `t_observed` ascending | unit | `pytest tests/ingestion/test_arbiter.py::test_metrics_parseable -x` | ❌ W0 | ⬜ pending |
+| 03-E2E-01 | e2e | 4 | REQ-end-to-end-latency | — | E2E synthetic ≥30 events: p50 `t_observed → t_state_committed` < 500ms | integration | `pytest tests/ingestion/test_e2e.py::test_e2e_p50_latency -x` | ❌ W0 | ⬜ pending |
+| 03-E2E-02 | e2e | 4 | REQ-end-to-end-latency | — | E2E synthetic: `theo_series` non-degenerate (∈ (0.01, 0.99), not 0.5) | integration | `pytest tests/ingestion/test_e2e.py::test_e2e_theo_non_degenerate -x` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
