@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 03
-current_plan: 0
-status: ready
-stopped_at: Phase 02 complete — Path A calibrated lookup shipped
-last_updated: "2026-05-01T17:30:00Z"
+current_plan: 0 (no plans yet — phase needs `/gsd-spec-phase` or `/gsd-discuss-phase` to begin)
+status: planning
+stopped_at: Phase 03 context gathered (v2 rewrite)
+last_updated: "2026-05-06T18:38:19.123Z"
 last_activity: 2026-05-01
 progress:
   total_phases: 8
@@ -120,6 +120,6 @@ None.
 ## Session Continuity
 
 - **Last session ended:** 2026-05-01 — Phase 02 fully shipped. Phase 2 chain: probe (`56f807d`) → resilience patches (`cd6076e`, `fafa6ae`) → checkpoint clearance + PROBE-LOG (`9981248`) → calibrator (`6ad51f4`, `f344da6`, `afed250`) → close-out (`7748e9f`, `862c69a`, `24182b8`).
-- **Stopped at:** Phase 02 complete — Path A calibrated lookup shipped
+- **Stopped at:** Phase 03 context gathered (v2 rewrite)
 - **Next action:** Phase 03 (live ingestion layer) needs spec/discuss → plan → execute. Per `roadmap.md` §3, the phase covers `MatchState` engine + scoreboard polling + OCR pipeline + text listeners + cross-source arbiter + latency instrumentation. Phase 3 is sub-500ms-latency live state plumbing; it's the largest phase by surface area. Recommended next command: `/gsd-spec-phase 03` to refine WHAT it delivers before discussing HOW.
 - **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs to future plan-phase agents. Constraint detail in `.planning/intel/constraints.md`.
