@@ -1,0 +1,96 @@
+This is the Valorant Live Pricing Model — a live BO3-pricing engine for
+Kalshi Valorant markets. Repo state: Phases 0/1/2 complete (math layer
+shipped, calibrated round-conclusion lookup at v1 schema), Phase 03 has
+SPEC.md (7 requirements, ambiguity 0.10) and CONTEXT.md (14 implementation
+decisions locked) ready for planning.
+
+EXECUTION ENVIRONMENT — IMPORTANT
+=================================
+
+You are running unsupervised on a remote desktop with this auto-resume
+infrastructure:
+
+  - An OS-level cron job invokes `claude --continue` every hour. When you
+    hit a Claude Code usage limit, the conversation pauses; the next cron
+    firing after the limit resets re-attaches to this conversation and
+    you continue.
+  - A git post-commit hook auto-pushes every commit to origin/main.
+  - The operator monitors via GitHub mobile (commits + .planning/STATE.md)
+    and intervenes only at the five operator-only gates listed below.
+
+Behave accordingly:
+
+  - COMMIT FREQUENTLY AND ATOMICALLY. Every task should land as its own
+    commit. The post-commit hook pushes immediately, so each commit is
+    durable state on GitHub. If a usage pause hits mid-task, work since
+    the last commit is lost — but the previous commit is safe.
+  - DO NOT RELY ON IN-MEMORY STATE across resume boundaries. The
+    .planning/ artifacts (STATE.md, PLAN.md, RESEARCH.md, etc.) and the
+    code in src/ ARE the durable state. After a resume, you re-read
+    these to pick up where you left off — that is the design.
+  - WHEN HALTING AT AN OPERATOR GATE: write a clear, specific message to
+    .planning/STATE.md `Stopped at:` and `Next action:` fields, commit it
+    (so the post-commit hook pushes it), then exit cleanly. The operator
+    will see the halt on GitHub mobile and clear the gate when ready.
+  - DO NOT ATTEMPT to converse, ask interactive questions via
+    AskUserQuestion, or wait for human input mid-build EXCEPT at the
+    five operator-only gates. Use recommended defaults everywhere else.
+
+WORK SCOPE
+==========
+
+Run /gsd-autonomous to plan and execute remaining phases sequentially:
+Phase 03 (live ingestion + post-plant rekey + ETL re-run) → Phase 04
+(quoting layer + Kalshi integration) → Phase 05.1 (unit + property tests)
+→ Phase 05.2 (backtest harness). HALT at the end of Phase 05.2.
+
+Backlog item 999.1 (half-win-rates refresh automation) is captured but
+NOT in autonomous scope — leave it.
+
+OPERATOR-ONLY GATES — HALT, DO NOT ATTEMPT
+==========================================
+
+  1. Phase 03 OCR ROI calibration (D-11). DO NOT halt for this. Use
+     placeholder coordinates assuming a 1920x1080 VCT international
+     broadcast: estimate the post-plant attackers/defenders alive widget
+     ROI from the standard HUD layout, write the values to
+     src/config/constants.py with comment
+     `# TODO(operator): recalibrate against live broadcast frames`,
+     and continue. If unit tests fail because of placeholder values,
+     mark those tests xfail with a TODO and continue.
+
+  2. Phase 04 first Kalshi API integration test. Auth uses .env
+     (KALSHI_KEY_ID + KALSHI_KEY_PATH). Should pass automatically. If
+     auth fails, write the specific error to STATE.md `Stopped at:`
+     and halt. Do not retry indefinitely.
+
+  3. End of Phase 5.2 — backtest harness complete. Halt and write to
+     STATE.md a summary of: backtest Brier(model) vs Brier(market_mid),
+     latency p50, kill-switch trip count. Question for operator:
+     "GO/NO-GO on entering Phase 5.3 paper trading?"
+
+  4. Phase 5.3 entry — paper trading. This is calendar-bound (needs a
+     real VCT event). DO NOT begin. Write a status note to STATE.md
+     ("Phase 5.3 ready — waiting on next VCT event for paper trade
+     window") and halt.
+
+  5. Phase 6 deployment. Operator-only decisions on bankroll size,
+     PER_MARKET_CAP_FRAC value, VM provisioning, key handling, and the
+     --live flag. Halt at Phase 6 entry; do not begin.
+
+CANONICAL REFERENCES
+====================
+
+Read these before planning each phase:
+
+  - .planning/phases/{phase}/{phase}-SPEC.md — locked requirements
+  - .planning/phases/{phase}/{phase}-CONTEXT.md — locked decisions
+  - .planning/PROJECT.md — DEC-001..DEC-024 (project-level decisions)
+  - .planning/REQUIREMENTS.md — REQ-* with v2 updates
+  - prd.md, roadmap.md, CLAUDE.md (repo root) — authoritative design
+  - .planning/STATE.md — current execution state
+
+BEGIN
+=====
+
+/gsd-autonomous
