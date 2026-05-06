@@ -70,3 +70,10 @@ data/round_events.sqlite
 .tox/
 .nox/
 scripts/_probe_live.log
+scripts/_probe_live.err
+
+# Phase 3 generated artifacts (large; per-machine)
+data/ribgg_cache/
+data/event_log/
+data/metrics/
+data/round_events_v2*
