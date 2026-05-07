@@ -77,3 +77,7 @@ data/ribgg_cache/
 data/event_log/
 data/metrics/
 data/round_events_v2*
+data/round_events_v2.sqlite
+
+# Autonomous-loop scratch output (operator harness; per-machine)
+.claude-loop-output.tmp
