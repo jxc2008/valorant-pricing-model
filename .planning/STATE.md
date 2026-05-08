@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 03
-current_plan: 3 of 9
+current_plan: 4 of 9
 status: in_progress
-stopped_at: Completed 03-02-round-conclusion-v2-surface-PLAN.md
-last_updated: "2026-05-08T19:08:02.668Z"
+stopped_at: Completed 03-03-arbiter-and-latency-PLAN.md
+last_updated: "2026-05-08T19:20:27Z"
 last_activity: 2026-05-08
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 24
-  completed_plans: 18
-  percent: 75
+  completed_plans: 19
+  percent: 79
 ---
 
 # STATE — Valorant Live Pricing Model
 
 **Project:** Valorant Live Pricing Model
 **Last activity:** 2026-05-08
-**Last activity description:** Phase 03 Plan 02 complete — wholesale rewrite of RoundConclusionLookup to v2 surface (between_round_p + post_plant_p + schema_version=2 gate); live_theo bomb_planted dispatch per D-05; atomic-replace models/round_conclusion.json with v2 synthetic-cell file; REQ-round-conclusion-lookup GREEN; 250 passed / 40 xfailed.
+**Last activity description:** Phase 03 Plan 03 complete — DEC-006 v2 cross-source arbiter (3 deques: score_changes / bomb_events / round_end_events; 0 deques cut: kill_events / numerical_flips per DEC-024 v2) with single-writer state mutation through src.state.commit/quarantine, six-stage timestamp lineage (t_observed -> t_ingested -> t_arbited -> t_state_committed; t_theo_computed / t_quote_sent reserved for Phase 4), and sibling JSONL files (data/event_log/{match_id}.jsonl + data/metrics/{match_id}.metrics.jsonl); REQ-cross-source-arbiter and REQ-latency-instrumentation GREEN; 259 passed / 27 xfailed.
 
 ---
 
@@ -35,18 +35,18 @@ progress:
 ## Current Position
 
 Phase: 03 (live-ingestion-layer) — IN PROGRESS
-Plan: 3 of 9 done (03-00 test infrastructure, 03-01 match-state-v2-migration, 03-02 round-conclusion-v2-surface)
+Plan: 4 of 9 done (03-00 test infrastructure, 03-01 match-state-v2-migration, 03-02 round-conclusion-v2-surface, 03-03 arbiter-and-latency)
 
 - **Current phase:** 03
-- **Current plan:** 3 of 9
-- **Status:** In progress; next plan is 03-03-arbiter-and-latency
-- **Progress:** [████████░░] 75%
+- **Current plan:** 4 of 9
+- **Status:** In progress; next plan is 03-04-scoreboard-poller
+- **Progress:** [████████░░] 79%
 
 ```
 Phase 0  [##########] Complete (3/3 plans)
 Phase 1  [##########] Complete (7/7 plans)
 Phase 2  [##########] Complete (5/5 plans)
-Phase 3  [###░░░░░░░] In progress (3/9 plans)
+Phase 3  [####░░░░░░] In progress (4/9 plans)
 Phase 4  [          ] Pending
 Phase 5  [          ] Pending
 Phase 6  [          ] Pending
@@ -60,7 +60,7 @@ Phase 7  [          ] Pending
 | 0 — Foundation | Complete (2026-04-27) | 3 (00-01, 00-02, 00-03) | 3 |
 | 1 — Core pricing engine | Complete | 7 (01-01..01-07) | 7 |
 | 2 — Round-event data | Complete (2026-05-01) | 5 (02-01..02-05) | 5 |
-| 3 — Live ingestion layer | In progress | 9 (03-00..03-08) | 3 |
+| 3 — Live ingestion layer | In progress | 9 (03-00..03-08) | 4 |
 | 4 — Quoting layer | Pending | none | — |
 | 5 — Validation | Pending | none | — |
 | 6 — Deployment | Pending | none | — |
@@ -79,6 +79,7 @@ Phase 7  [          ] Pending
 | Phase 03 P00 | 8 min, 3 tasks, 16 files | RED-stubs landed; 263 passed / 31 xfailed |
 | Phase 03 P01 | 6h 14m wall-clock (~30 min active), 2 tasks, 14 files | MatchState v2 + JSONL replay GREEN; 268 passed / 26 xfailed |
 | Phase 03 P02 | 6h 49m wall-clock (~30 min active), 3 tasks, 14 files | RoundConclusion v2 surface + D-05 dispatch GREEN; 250 passed / 40 xfailed |
+| Phase 03 P03 | 7 min, 3 tasks, 8 files | DEC-006 v2 arbiter + 6-stage timestamps GREEN; 259 passed / 27 xfailed |
 
 ## Accumulated Context
 
@@ -97,6 +98,11 @@ Phase 7  [          ] Pending
 - [Phase 03]: Future-round transitions ALWAYS use between-round fn closure in bomb_planted branch (D-05) — Nested post-plant lookups would require alive-counts at every future round (impossible — those are post-plant event state) and would blow up the cache key space. Single current-round override matches DEC-018's one-step branch composition pattern.
 - [Phase 03]: Defensive None-guard for malformed bomb_planted=True states falls back to between-round path with degraded confidence — bomb_planted=True with missing attackers_alive/defenders_alive/time_left_s falls back rather than hard-erroring; Phase 4 mode-selector reads low confidence and maps to IDLE per DEC-001 v2. Hard error would crash the live engine on data races between OCR worker and arbiter.
 - [Phase 03]: Asymmetric HalfRates required to test the dispatch override (symmetric rates make dispatch invisible) — Under symmetric rates DP delivers v(state_after_a_wins) == v(state_after_b_wins) by symmetry, so p*v + (1-p)*v == v for any p. Test fixture uses TeamA at 0.6 / TeamB at 0.4 to break symmetry; comment block in _make_half_rates flags the trap.
+- **2026-05-08 — score_change holds (re-queues), doesn't quarantine, on first sight of single-source events.** Quarantine only fires after _DEQUE_MAX_AGE_S=3s wall-clock staleness. Rationale: a fresh single-source event typically cross-confirms in the next 50ms tick once 2nd source emits; quarantining immediately would miss typical real-world cadence.
+- **2026-05-08 — Bomb / round_end soft-commit is the production contract; arbiter does NOT roll back.** Rolling back would mutate the seq_id chain (subsequent commits leapfrog or reuse), breaking replay determinism. Phase 4 mode-selector handles the false-positive case via IDLE quoting on state mismatch.
+- **2026-05-08 — Sibling JSONL files (event_log + metrics), not a single combined file.** event_log = state replay (commit + quarantine lines); metrics = latency analysis (commits only with fields_changed_keys for provenance, NO field values). Coupling them would force Phase 5 latency analysis to filter quarantine-line semantics; the split keeps each reader simple.
+- **2026-05-08 — '|'-joined source provenance with sorted alphabetical order in JSONL line.** Set iteration order is non-deterministic across Python runs (CPython 3.11 randomized hashing). Replay determinism requires identical source string across runs of same input — `tuple(sorted(distinct_sources))` guarantees this.
+- **2026-05-08 — Local `_DEQUE_MAX_AGE_S = 3.0` constant in arbiter.py rather than a public src.config.constants entry.** The arbiter is the sole consumer; promoting it would add public API surface no other module reads. Internal arbiter implementation detail; the public threshold ARBITER_SCORE_WINDOW_S IS in constants.py per CRule 12.
 
 ### Recent decisions (cross-phase)
 
@@ -132,7 +138,7 @@ None.
 
 ## Session Continuity
 
-- **Last session ended:** 2026-05-08 — Phase 03 Plan 02 (round-conclusion-v2-surface) shipped. Commits: `cc70aa0` (Task 1: v2 constants + delete economy.py per CLAUDE.md, landed in prior session) → `3005709` (Task 2: rewrite RoundConclusionLookup to v2 surface + atomic-replace round_conclusion.json) → `a519023` (Task 3: live_theo bomb_planted dispatch (D-05) + Phase 1+2 regression patch).
-- **Stopped at:** Completed 03-02-round-conclusion-v2-surface-PLAN.md
-- **Next action:** Plan 03-03 (arbiter-and-latency). Wave 3A — 3-deque cross-source arbiter (score_changes / bomb_events / round_end_events per DEC-006 v2) + six-stage timestamp lineage on every event + REQ-cross-source-arbiter / REQ-latency-instrumentation acceptance.
+- **Last session ended:** 2026-05-08 — Phase 03 Plan 03 (arbiter-and-latency) shipped. Commits: `f344130` (Task 1: src/ingestion timestamps + events + 4 arbiter constants) → `a2b4226` (Task 2: Arbiter class with 3 deques + tick + commit/quarantine bridge per DEC-006 v2) → `2356661` (Task 3: six-stage timestamp lineage assertion + tests/config/test_constants allow-list update).
+- **Stopped at:** Completed 03-03-arbiter-and-latency-PLAN.md
+- **Next action:** Plan 03-04 (scoreboard-poller). Wave 3B — async rib.gg scoreboard poller built on Phase 2 resilience patterns (`_ribgg_wait`, Connection: close, tenacity retry); pushes PendingEvent(source="ribgg", event_type="score_change") into Arbiter.score_changes. REQ-scoreboard-polling acceptance.
 - **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs. Constraint detail in `.planning/intel/constraints.md`. Phase 3 implementation decisions in `.planning/phases/03-live-ingestion-layer/03-CONTEXT.md` (D-01 through D-14).

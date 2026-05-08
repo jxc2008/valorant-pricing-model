@@ -151,7 +151,7 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 - **Scope:** ingestion source
 - **Description:** Twitter API v2 streaming filter on match-related hashtags / accounts. Soft signal only — never sole-source confirmation.
 
-### REQ-cross-source-arbiter (SIMPLIFIED v2 — 3 deques)
+### REQ-cross-source-arbiter (SIMPLIFIED v2 — 3 deques) — **Complete (2026-05-08, plan 03-03)**
 - **Source:** roadmap.md §3.5; prd.md §5.1 (v2 pivot — DEC-006 v2)
 - **Scope:** ingestion arbitration
 - **Description:** Three-queue pipeline: `sources → pending_updates → arbiter → confirmed_updates → state engine`; quarantined updates logged but not committed. Per-event-type deques (3 — was 5 in v1; `kill_events` and `numerical_flips` removed):
@@ -160,7 +160,7 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
   - **round_end_events**: 1 OCR source — soft commit; hard-confirmed by next score update
   - pre-match lineup, sides: API single-source (no deque needed)
 
-### REQ-latency-instrumentation
+### REQ-latency-instrumentation — **Complete (2026-05-08, plan 03-03)**
 - **Source:** roadmap.md §3.6
 - **Scope:** observability
 - **Description:** Every event carries timestamps at each stage: `t_observed, t_ingested, t_arbited, t_state_committed, t_theo_computed, t_quote_sent`. Logged to a metrics file.
