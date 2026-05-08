@@ -335,3 +335,101 @@ SCOREBOARD_MAX_RETRIES: Final[int] = 5
 trigger. Phase 2 carry-forward (5 attempts has empirically been enough to
 ride out rib.gg Heroku cold-starts and 503/429 spikes during VCT events).
 """
+
+# --------------------------------------------------------------------------- #
+# Phase 3 — OCR pipeline (DEC-024 v2 / D-11 / D-12 / D-13 / D-14)             #
+# --------------------------------------------------------------------------- #
+
+OCR_SCORE_BANNER_CADENCE_MS: Final[int] = 250
+"""Score banner OCR cadence (ms). DEC-024 v2 — primary HUD target #1.
+
+Source: 03-CONTEXT.md / DEC-024 v2 / CLAUDE.md CRule 10a OCR scope. The 250ms
+floor matches ARBITER_SCORE_WINDOW_S=2.0s (multi-confirm rule) — fast enough
+that an OCR push and a rib.gg push fall inside the same window."""
+
+OCR_BOMB_ICON_CADENCE_MS: Final[int] = 500
+"""Bomb-plant icon detection cadence (ms). DEC-024 v2 — primary HUD target #2.
+
+Source: 03-CONTEXT.md / DEC-024 v2. 500ms is fast enough for the bomb-detect →
+state-commit p50 < 100ms budget when a plant lands at the start of a 500ms
+window (worst case ~600ms but median ~250ms)."""
+
+OCR_ROUND_END_CADENCE_MS: Final[int] = 100
+"""Round-end banner cadence during round-end window (ms). DEC-024 v2.
+
+Source: 03-CONTEXT.md / DEC-024 v2. Tight 100ms cadence captures the ~500ms
+banner-leads-scoreboard alpha noted in PRD §5.1."""
+
+OCR_POST_PLANT_ALIVE_CADENCE_MS: Final[int] = 250
+"""Post-plant alive widget cadence (ms). D-12: gated on bomb_planted=True.
+
+Source: 03-CONTEXT.md D-12. The 250ms cadence is the floor that determines
+how fast post-plant theo can update via attackers_alive/defenders_alive
+deltas — D-12 hard-gate keeps the worker silent when no plant is active so
+the ~30ms/cycle CPU is only spent during the 45s post-plant window."""
+
+OCR_DECODE_BUDGET_MS: Final[int] = 100
+"""Per-frame decode + inference budget (ms). SPEC §3 acceptance — p50 must
+be below this across all 4 OCR targets.
+
+Source: 03-RESEARCH.md Pitfall 2 — pytesseract subprocess fork overhead is
+~10-20ms; budget accordingly. Bomb-detect → state-commit p50 < 100ms hot path
+(SPEC §6) hinges on this floor."""
+
+BROADCAST_TEMPLATE_VERSION: Final[str] = "vct-2026-international"
+"""Layout-version anchor for ROI calibration. D-11: single-template assumption;
+multi-template fallback is Phase 5 robustness work. Bump when broadcast layout
+shifts (e.g., VCT regional vs international, or new season skin).
+
+Source: 03-CONTEXT.md D-11. Operator runs scripts/dump_roi_overlay.py to
+verify ROIs land cleanly against a captured broadcast frame; if any rectangle
+is off, edit the ROI tuples below AND bump this version string in the same
+commit so the calibration record is forensic-traceable."""
+
+# TODO(operator): recalibrate ROIs below against first VCT 2026 broadcast frame;
+# use scripts/dump_roi_overlay.py to verify. Coordinates assume 1920x1080 frame.
+SCORE_BANNER_TEAM1_ROI: Final[tuple[int, int, int, int]] = (800, 15, 870, 51)
+"""Team-1 score (left of banner) ROI: (x1, y1, x2, y2) at 1920x1080.
+
+PLACEHOLDER pending operator recalibration (D-11)."""
+
+# TODO(operator): recalibrate against first VCT 2026 broadcast frame.
+SCORE_BANNER_TEAM2_ROI: Final[tuple[int, int, int, int]] = (1050, 15, 1125, 51)
+"""Team-2 score (right of banner) ROI: (x1, y1, x2, y2) at 1920x1080.
+
+PLACEHOLDER pending operator recalibration (D-11)."""
+
+# TODO(operator): recalibrate against first VCT 2026 broadcast frame.
+BOMB_PLANT_ICON_ROI: Final[tuple[int, int, int, int]] = (910, 60, 1010, 100)
+"""Spike icon detection ROI (centered top, below score banner). PLACEHOLDER.
+
+D-11: single-template assumption; multi-template is Phase 5 robustness work."""
+
+# TODO(operator): recalibrate against first VCT 2026 broadcast frame.
+ROUND_END_BANNER_ROI: Final[tuple[int, int, int, int]] = (760, 380, 1160, 480)
+"""Round-end center-screen banner ROI. PLACEHOLDER.
+
+Round-end banner appears ~500ms before scoreboard updates (PRD §5.1)."""
+
+# TODO(operator): recalibrate against first VCT 2026 broadcast frame.
+POST_PLANT_ATTACKERS_ROI: Final[tuple[int, int, int, int]] = (820, 105, 870, 155)
+"""Post-plant attacker-alive single digit ROI. PLACEHOLDER (D-11).
+
+Only parsed when bomb_planted=True (D-12 hard-gate); single-character ROI
+per D-13 Tesseract config TESS_CONFIG_DIGIT_SINGLE."""
+
+# TODO(operator): recalibrate against first VCT 2026 broadcast frame.
+POST_PLANT_DEFENDERS_ROI: Final[tuple[int, int, int, int]] = (1050, 105, 1100, 155)
+"""Post-plant defender-alive single digit ROI. PLACEHOLDER (D-11)."""
+
+TESS_CONFIG_DIGIT_SINGLE: Final[str] = "--psm 10 --oem 3 -c tessedit_char_whitelist=012345"
+"""Tesseract config for single-digit alive-count parsing (D-13).
+
+PSM 10 = single character mode; OEM 3 = LSTM + legacy; whitelist enforces 0-5.
+Source: 03-CONTEXT.md D-13 / 03-RESEARCH.md §"Code Examples" PSM 10 digit pipeline."""
+
+TESS_CONFIG_DIGIT_MULTI: Final[str] = "--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789"
+"""Tesseract config for multi-digit score parsing (0-13).
+
+PSM 7 = single line of text mode; needed for score banner where 2-digit values
+(10, 11, 12, 13) appear after pistol-rich first halves."""

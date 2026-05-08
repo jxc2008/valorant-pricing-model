@@ -7,6 +7,7 @@ from src.ingestion.events import (
     PendingEvent,
     SourceName,
 )
+from src.ingestion.frame_source import FrameSource, StubFrameSource, YouTubeFrameSource
 from src.ingestion.scoreboard import run_scoreboard_poller
 from src.ingestion.timestamps import TimestampRecord, mono_ns, wall_time
 
@@ -14,9 +15,12 @@ __all__ = [
     "Arbiter",
     "ConfirmedEvent",
     "EventType",
+    "FrameSource",
     "PendingEvent",
     "SourceName",
+    "StubFrameSource",
     "TimestampRecord",
+    "YouTubeFrameSource",
     "mono_ns",
     "run_scoreboard_poller",
     "wall_time",
