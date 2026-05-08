@@ -57,24 +57,29 @@ def _synthetic_mid_round_state() -> MatchState:
     Uses Phase 1 side encoding: side_orient and map_side_orients are
     "a_atk" / "a_def"; the lookup-facing `side` is "atk".
     """
+    # Phase 3 v2: numerical_diff / side / econ_bucket cut from MatchState (D-01);
+    # see src.state.match_state. v2 adds bomb_planted / attackers_alive /
+    # defenders_alive / time_left_s / seq_id / last_updated_ts.
     return MatchState(
         match_id="TEST-INTEG-01",
         team_a="SEN",
         team_b="KRÜ",
         map_pool=("Lotus", "Bind", "Haven"),
+        map_side_orients=("a_atk", "a_def", "a_atk"),
+        map_winners=(None, None, None),
+        pistol_winner_a={0: True, 1: None, 2: None},
         map_idx=0,
         a_map_score=0,
         b_map_score=0,
         a_round=6,
         b_round=5,
         side_orient="a_atk",
-        map_side_orients=("a_atk", "a_def", "a_atk"),
-        map_winners=(None, None, None),
-        pistol_winner_a={0: True, 1: None, 2: None},
-        numerical_diff=0,
         bomb_planted=False,
-        side="atk",
-        econ_bucket="full",
+        attackers_alive=None,
+        defenders_alive=None,
+        time_left_s=None,
+        seq_id=0,
+        last_updated_ts=0.0,
     )
 
 

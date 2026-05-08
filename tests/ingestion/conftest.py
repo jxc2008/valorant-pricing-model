@@ -1,31 +1,35 @@
 """Phase 3 ingestion test fixtures.
 
 Used by every tests/ingestion/test_*.py file per VALIDATION.md.
-Designed to survive the Wave 1 atomic move of MatchState from
-src/pricing/data.py to src/state/match_state.py — fixtures return
-dict[str, Any] payloads that callers convert to dataclass instances.
+
+Wave 1 (plan 03-01) update: ``make_match_state`` now returns a real
+``MatchState`` dataclass instance (not a dict) — Wave 0 deferred the swap
+because src/state/match_state.py didn't exist yet.
 """
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import pytest
 
+from src.state.match_state import MatchState
+
 
 @pytest.fixture
-def make_match_state() -> Callable[..., dict[str, Any]]:
-    """Build a v2-shape MatchState dict; tests convert to dataclass post-Wave-1.
+def make_match_state() -> Callable[..., MatchState]:
+    """Build a v2-shape MatchState; tests pass kwargs to override any field.
 
     Default state: BO3 series in progress, map 0 active, T1 vs Sentinels on
     Lotus|Bind|Haven, side_orient=a_atk, no bomb planted, seq_id=0.
     Override any field via kwargs.
     """
 
-    def _make(**overrides: Any) -> dict[str, Any]:
+    def _make(**overrides: Any) -> MatchState:
         base: dict[str, Any] = {
             "match_id": "test-match-001",
             "team_a": "T1",
@@ -48,7 +52,7 @@ def make_match_state() -> Callable[..., dict[str, Any]]:
             "last_updated_ts": 0.0,
         }
         base.update(overrides)
-        return base
+        return MatchState(**base)
 
     return _make
 

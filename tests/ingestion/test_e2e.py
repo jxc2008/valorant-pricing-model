@@ -1,4 +1,4 @@
-"""REQ-end-to-end-latency — SPEC §6 acceptance: synthetic E2E latency p50 + post-plant non-degeneracy.
+"""REQ-end-to-end-latency — SPEC §6: synthetic E2E latency p50 + post-plant non-degeneracy.
 
 RED stub. Wave 4 (plan 03-08) populates this with the synthetic E2E gate that
 drives fake rib.gg + fake OCR + fake Twitter through arbiter -> MatchState ->

@@ -1,4 +1,4 @@
-"""REQ-text-listener — SPEC §4 acceptance: typed soft events + degrade-to-no-op + Twitter-only quarantine.
+"""REQ-text-listener — SPEC §4: typed soft events + degrade-to-no-op + Twitter-only quarantine.
 
 RED stub. Wave 3D (plan 03-06) populates this with mocked Twitter v2 stream
 fixtures asserting (a) typed soft-event emission, (b) Twitter-only updates

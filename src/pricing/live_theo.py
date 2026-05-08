@@ -39,7 +39,7 @@ from src.config.constants import (
     REGULATION_HALF,
     WIN_THRESHOLD,
 )
-from src.pricing.data import HalfRates, MatchState, TheoOutput
+from src.pricing.data import HalfRates, TheoOutput
 from src.pricing.dp import (
     BO3State,
     RoundPFn,
@@ -49,6 +49,7 @@ from src.pricing.dp import (
 )
 from src.pricing.round_conclusion import RoundConclusionFn
 from src.pricing.round_types import round_p_for_round
+from src.state.match_state import MatchState
 
 # --------------------------------------------------------------------------- #
 # 1. State conversion (MatchState -> BO3State)                                #

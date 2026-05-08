@@ -60,36 +60,51 @@ def test_theo_output_is_frozen_dataclass() -> None:
         out.theo_series = 0.6  # type: ignore[misc]
 
 
-def test_match_state_is_17_field_frozen_dataclass() -> None:
-    """D-02 + D-17 + D-18 + D-19: 17 fields exactly. Frozen + slots."""
+def test_match_state_is_19_field_frozen_dataclass() -> None:
+    """Phase 3 D-01: 19 fields exactly (v2 field set). Frozen + slots.
+
+    Phase 1 stub had 17 fields (numerical_diff/side/econ_bucket as v1 lookup
+    keys). Phase 3 cuts those 3 (irrelevant under v2 round_conclusion keying)
+    and adds 6 new dynamic fields (bomb_planted promoted from Phase 1, plus
+    attackers_alive / defenders_alive / time_left_s / seq_id / last_updated_ts).
+    """
     assert dataclasses.is_dataclass(MatchState)
     fields = dataclasses.fields(MatchState)
     field_names = [f.name for f in fields]
-    assert len(fields) == 17, f"expected 17 fields, got {len(fields)}: {field_names}"
+    assert len(fields) == 19, f"expected 19 fields, got {len(fields)}: {field_names}"
     expected = {
+        # 7 static-per-match (Phase 1 D-17/D-18/D-19; consumed by live_theo)
         "match_id",
         "team_a",
         "team_b",
         "map_pool",
+        "map_side_orients",
+        "map_winners",
+        "pistol_winner_a",
+        # 12 dynamic v2 fields (Phase 3 D-01)
         "map_idx",
         "a_map_score",
         "b_map_score",
         "a_round",
         "b_round",
         "side_orient",
-        "map_side_orients",
-        "map_winners",
-        "pistol_winner_a",
-        "numerical_diff",
         "bomb_planted",
-        "side",
-        "econ_bucket",
+        "attackers_alive",
+        "defenders_alive",
+        "time_left_s",
+        "seq_id",
+        "last_updated_ts",
     }
     assert set(field_names) == expected
-    # Forbidden Phase 3 fields:
-    forbidden = {"seq_id", "last_updated_ts", "players_alive", "ults", "time_left_s"}
-    assert not (forbidden & set(field_names)), (
-        "Phase 3 fields leaked into Phase 1 stub MatchState"
+    # v1 fields cut from MatchState per Phase 3 D-01 (irrelevant under v2 keying):
+    forbidden_v1 = {"numerical_diff", "side", "econ_bucket"}
+    assert not (forbidden_v1 & set(field_names)), (
+        "v1 fields leaked into v2 MatchState"
+    )
+    # Other v1 cuts per CLAUDE.md (never on the dataclass; defensive):
+    forbidden_other = {"econ_a", "econ_b", "ults_a", "ults_b", "players_alive_a", "players_alive_b"}
+    assert not (forbidden_other & set(field_names)), (
+        "v1 cut fields leaked into v2 MatchState"
     )
 
 
@@ -273,25 +288,34 @@ def _synthetic_match_state(
     map_winners: tuple[bool | None, ...] = (None, None, None),
     pistol_winner_a: dict[int, bool | None] | None = None,
 ) -> MatchState:
-    """Canonical synthetic MatchState fixture used across Phase 1 integration tests."""
+    """Canonical synthetic MatchState fixture used across Phase 1 integration tests.
+
+    Phase 3 v2 update: drops v1 fields (numerical_diff / side / econ_bucket) and
+    adds 6 new v2 dynamic fields with sensible Phase-1-shape defaults
+    (bomb_planted=False, *_alive=None, time_left_s=None, seq_id=0,
+    last_updated_ts=0.0). Phase 3 v2: numerical_diff cut from MatchState (D-01);
+    see src.state.match_state.
+    """
     return MatchState(
         match_id="synthetic-001",
         team_a="TeamA",
         team_b="TeamB",
         map_pool=("Lotus", "Bind", "Haven"),
+        map_side_orients=map_side_orients,
+        map_winners=map_winners,
+        pistol_winner_a=pistol_winner_a or {0: None, 1: None, 2: None},
         map_idx=map_idx,
         a_map_score=a_map_score,
         b_map_score=b_map_score,
         a_round=a_round,
         b_round=b_round,
         side_orient=side_orient,
-        map_side_orients=map_side_orients,
-        map_winners=map_winners,
-        pistol_winner_a=pistol_winner_a or {0: None, 1: None, 2: None},
-        numerical_diff=0,
         bomb_planted=False,
-        side="atk",
-        econ_bucket="full",
+        attackers_alive=None,
+        defenders_alive=None,
+        time_left_s=None,
+        seq_id=0,
+        last_updated_ts=0.0,
     )
 
 

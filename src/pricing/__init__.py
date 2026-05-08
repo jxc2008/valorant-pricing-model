@@ -13,7 +13,8 @@ round_types / round_conclusion are PRIVATE to the package — downstream code
 must not import them directly (DEC-010 / D-12).
 """
 
-from src.pricing.data import HalfRates, MatchState, TheoOutput
+from src.pricing.data import HalfRates, TheoOutput
 from src.pricing.live_theo import LiveTheoEngine
+from src.state.match_state import MatchState
 
 __all__ = ["LiveTheoEngine", "TheoOutput", "MatchState", "HalfRates"]

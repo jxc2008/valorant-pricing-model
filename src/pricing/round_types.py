@@ -48,12 +48,12 @@ from src.pricing import blend
 if TYPE_CHECKING:
     # Type-only imports avoid runtime circular dependency. live_theo.py and
     # dp.py both import from this module via runtime; we only need their types.
-    # MatchState lives in src/pricing/data.py (D-14 / 01-05 placement); the
-    # original 01-03 plan referenced live_theo.py before D-14 was added. This
-    # import points to the canonical location to keep mypy --strict green
-    # without forcing an explicit `__all__` re-export on live_theo.py.
-    from src.pricing.data import MatchState
+    # MatchState lives in src/state/match_state.py (Phase 3 D-01 / plan 03-01).
+    # The original 01-03 plan referenced live_theo.py before D-14 was added;
+    # Phase 1 D-14 moved it to src/pricing/data.py and Phase 3 D-01 then moved
+    # it to its long-term home in src/state/match_state.py.
     from src.pricing.dp import BO3State
+    from src.state.match_state import MatchState
 
 
 # --------------------------------------------------------------------------- #

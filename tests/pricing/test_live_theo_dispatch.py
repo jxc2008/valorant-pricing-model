@@ -1,4 +1,4 @@
-"""REQ-round-conclusion-lookup — SPEC §7 acceptance: D-05 dispatch (bomb_planted=True vs between-round).
+"""REQ-round-conclusion-lookup — SPEC §7: D-05 dispatch (bomb_planted vs between-round).
 
 RED stub. Wave 2A (plan 03-02) populates this with unit tests asserting that
 _live_theo_impl routes bomb_planted=True to post_plant_p + override DP recursion

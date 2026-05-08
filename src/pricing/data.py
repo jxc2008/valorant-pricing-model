@@ -23,6 +23,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 from src.config.constants import SHRINK_PRIOR
+from src.state.match_state import (
+    MatchState as MatchState,  # noqa: F401 — Phase 3 D-01 re-export shim, deleted in plan 03-01 Task 2
+)
 
 # --------------------------------------------------------------------------- #
 # 1. TheoOutput — public pricing output (PRD §2 / DEC-010)                    #
@@ -52,57 +55,16 @@ class TheoOutput:
 
 
 # --------------------------------------------------------------------------- #
-# 2. MatchState — Phase 1 stub (17 fields per D-02 + D-17/D-18/D-19)          #
+# 2. MatchState — moved to src/state/match_state.py per Phase 3 D-01           #
 # --------------------------------------------------------------------------- #
-
-
-@dataclass(frozen=True, slots=True)
-class MatchState:
-    """Phase 1 stub MatchState.
-
-    Smallest field set that makes ``LiveTheoEngine.__call__`` callable
-    end-to-end (D-01). Phase 3 (REQ-match-state-engine) replaces this with the
-    full ingestion-driven version; the orchestrator's signature remains
-    `engine(state) -> TheoOutput` (D-20). Phase 1 → Phase 3 seam absorbs one
-    refactor.
-
-    Fields (17 total):
-      Identity:
-        match_id, team_a (D-17), team_b (D-17)
-      Series state:
-        map_pool, map_idx, a_map_score, b_map_score
-      Within-map state:
-        a_round, b_round, side_orient
-      Per-map starting sides + winners (D-18, D-19):
-        map_side_orients, map_winners
-      Pistol memory:
-        pistol_winner_a (dict[map_idx, Optional[bool]])
-      Mid-round signals (consumed by RoundConclusionLookup; opaque in Phase 1):
-        numerical_diff, bomb_planted, side, econ_bucket
-
-    Phase 3 fields deferred per D-02 (NOT included here): the live-state
-    sequence id, last-updated timestamp, players-alive counter, ult counter,
-    and time-left counter. The runtime test in tests/pricing/test_live_theo.py
-    enumerates them and asserts none of them leaked into the Phase 1 stub.
-    """
-
-    match_id: str
-    team_a: str
-    team_b: str
-    map_pool: tuple[str, ...]
-    map_idx: int
-    a_map_score: int
-    b_map_score: int
-    a_round: int
-    b_round: int
-    side_orient: str
-    map_side_orients: tuple[str, ...]
-    map_winners: tuple[Optional[bool], ...]  # noqa: UP045 — Optional[bool] required for tuple keying
-    pistol_winner_a: dict[int, Optional[bool]]  # noqa: UP045 — Optional[bool] kept for clarity
-    numerical_diff: int
-    bomb_planted: bool
-    side: str
-    econ_bucket: str
+# Phase 3 (REQ-match-state-engine) moved MatchState to src/state/match_state.py
+# with the v2 field set (cuts numerical_diff/side/econ_bucket; adds
+# attackers_alive / defenders_alive / time_left_s / seq_id / last_updated_ts).
+# A re-export shim is imported at module top so `from src.pricing.data import
+# MatchState` keeps working for the duration of the Wave 1 atomic-rename
+# commit; plan 03-01 Task 2 deletes the shim entirely. Downstream code MUST
+# migrate to `from src.state.match_state import MatchState` (or
+# `from src.state import MatchState`).
 
 
 # --------------------------------------------------------------------------- #
