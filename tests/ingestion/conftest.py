@@ -5,18 +5,22 @@ Used by every tests/ingestion/test_*.py file per VALIDATION.md.
 Wave 1 (plan 03-01) update: ``make_match_state`` now returns a real
 ``MatchState`` dataclass instance (not a dict) — Wave 0 deferred the swap
 because src/state/match_state.py didn't exist yet.
+
+Wave 3A (plan 03-03) update: ``arbiter_with_stub_sources`` now returns a real
+``Arbiter`` wired to per-test tmp event-log + metrics paths. Sources push
+PendingEvents directly into ``arb.score_changes`` / ``arb.bomb_events`` /
+``arb.round_end_events`` deques and call ``arb.tick()`` to drive confirmation.
 """
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pytest
 
+from src.ingestion import Arbiter
 from src.state.match_state import MatchState
 
 
@@ -89,19 +93,38 @@ def synthetic_frame_factory() -> Callable[..., np.ndarray]:
 
 
 @pytest.fixture
-def arbiter_with_stub_sources() -> Callable[..., Any]:
-    """Build an Arbiter wired to in-memory stub sources.
+def arbiter_with_stub_sources(tmp_path: Path) -> Arbiter:
+    """Real Arbiter wired to tmp event log + metrics — sources push directly into deques.
 
-    Returns a builder Wave 3A populates once src/ingestion/arbiter.py exists.
-    Wave 0 stub: returns SimpleNamespace with empty deques.
+    Wave 3A (plan 03-03): replaces the Wave-0 SimpleNamespace stub. Tests
+    push PendingEvents into ``arb.score_changes`` / ``arb.bomb_events`` /
+    ``arb.round_end_events`` and call ``arb.tick()`` to drive confirmation.
+    JSONL diff log lives at ``arb.jsonl_path`` (under tmp_path/event_log/);
+    metrics line at ``arb.metrics_path`` (under tmp_path/metrics/).
     """
-
-    def _build(**kwargs: Any) -> SimpleNamespace:
-        del kwargs
-        return SimpleNamespace(
-            score_changes=deque(maxlen=128),
-            bomb_events=deque(maxlen=64),
-            round_end_events=deque(maxlen=64),
-        )
-
-    return _build
+    initial = MatchState(
+        match_id="conftest-arbiter-001",
+        team_a="A",
+        team_b="B",
+        map_pool=("Lotus",),
+        map_side_orients=("a_atk",),
+        map_winners=(None,),
+        pistol_winner_a={0: None},
+        map_idx=0,
+        a_map_score=0,
+        b_map_score=0,
+        a_round=0,
+        b_round=0,
+        side_orient="atk",
+        bomb_planted=False,
+        attackers_alive=None,
+        defenders_alive=None,
+        time_left_s=None,
+        seq_id=0,
+        last_updated_ts=0.0,
+    )
+    return Arbiter(
+        initial,
+        event_log_dir=tmp_path / "event_log",
+        metrics_log_dir=tmp_path / "metrics",
+    )
