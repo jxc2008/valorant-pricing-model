@@ -129,10 +129,11 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 - **Acceptance:** quoting layer only acts on monotonically-increasing seq_ids; `seq_id` strictly monotonic over 1000 random `with_update` calls; JSONL replay reproduces final state.
 - **Implementation:** plan 03-01 — `src/state/match_state.py` (19-field frozen+slots dataclass + pure `with_update` + module-level `commit`/`quarantine` JSONL helpers per D-03 schema). Acceptance proven by `tests/ingestion/test_match_state.py::test_seq_id_strictly_monotonic` (hypothesis property test) and `tests/ingestion/test_match_state_jsonl.py::test_replay_determinism` (1000 commits → JSONL → in-order replay reconstructs state byte-for-byte).
 
-### REQ-scoreboard-polling
+### REQ-scoreboard-polling — **Complete (2026-05-08, plan 03-04)**
 - **Source:** roadmap.md §3.2
 - **Scope:** ingestion source
 - **Description:** Poll rib.gg / bo3.gg / vlr.gg live endpoints every 5s. Reuse `vlr_scraper.py` / `rib_scraper.py` patterns from existing repo. Authoritative but slowest source.
+- **Implementation:** plan 03-04 — `src/ingestion/scoreboard.py` (async poller on `aiohttp.ClientSession`; tenacity `@retry` with `_RibggWaitAsync` honoring `Retry-After` capped 10s; cycle-level 5-failure cooldown for `SCOREBOARD_FAILURE_COOLDOWN_S=60s`). Single source landed (rib.gg @ 5s); bo3.gg / vlr.gg deferred to Phase 5 robustness work per 03-CONTEXT. Acceptance proven by `tests/ingestion/test_scoreboard.py::test_poller_emits_typed_events` (aioresponses-mocked typed event emission) + `test_retry_honors_retry_after` (tenacity Retry-After honoring on 503).
 
 ### REQ-ocr-pipeline (RESCOPED v2 — three HUD targets only)
 - **Source:** roadmap.md §3.3; prd.md §5.1 (v2 pivot — DEC-024)
