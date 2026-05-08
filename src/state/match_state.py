@@ -1,6 +1,6 @@
-"""MatchState v2 — Phase 3 single-source-of-truth runtime state.
+"""MatchState v2 + JSONL event-log helpers — Phase 3 single-source-of-truth runtime state.
 
-Per Phase 3 D-01 / D-02 / D-14, RESEARCH §"Pattern 1" / §"Code Examples".
+Per Phase 3 D-01 / D-02 / D-03 / D-14, RESEARCH §"Pattern 1" / §"Code Examples".
 
 The dataclass is frozen + slots and carries:
   - 7 static-per-match fields required by ``live_theo`` (Phase 1 D-17/D-18/D-19):
@@ -23,22 +23,35 @@ states directly.
 
 Why pure: per D-02, decoupling JSONL append from the mutator makes the engine
 unit-testable without ``tmp_path`` fixtures and keeps the dry-run path clean.
-The companion ``commit`` / ``quarantine`` module-level helpers (added in plan
-03-01 Task 2) wrap ``with_update`` + JSONL append into the arbiter-facing
-single-writer surface.
+
+Single-writer JSONL helpers (D-03)
+----------------------------------
+``commit(prev, fields_changed, *, source, event_type, timestamps, jsonl_path)``
+wraps ``with_update`` with a synchronous JSONL append per the D-03 schema.
+``quarantine(...)`` writes a quarantine line; state is unchanged.
+
+**Single-writer invariant:** the arbiter (Phase 3 Wave 3A) is the SOLE caller
+of ``commit`` and ``quarantine`` in production. The JSONL append is atomic
+under POSIX ``O_APPEND`` for writes ≤ PIPE_BUF (4KB on Linux); on Windows the
+single-writer invariant is maintained by the arbiter's ``tick()`` loop being
+the sole producer (RESEARCH Pitfall 4).
 
 References
 ----------
-- ``.planning/phases/03-live-ingestion-layer/03-CONTEXT.md`` D-01, D-02, D-14
-- ``.planning/phases/03-live-ingestion-layer/03-RESEARCH.md`` Pattern 1, Pitfall 7, Pitfall 8
+- ``.planning/phases/03-live-ingestion-layer/03-CONTEXT.md``
+  D-01, D-02, D-03, D-14
+- ``.planning/phases/03-live-ingestion-layer/03-RESEARCH.md``
+  Pattern 1, Pitfall 4, Pitfall 7, Pitfall 8
 - ``CLAUDE.md`` ``MatchState`` field set (v2)
 - Phase 1 D-17/D-18/D-19 — static fields preserved for ``live_theo``
 """
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, Optional
 
 
@@ -106,3 +119,88 @@ class MatchState:
             last_updated_ts=time.time(),
             **fields_changed,
         )
+
+
+def commit(
+    prev: MatchState,
+    fields_changed: dict[str, Any],
+    *,
+    source: str,
+    event_type: str,
+    timestamps: dict[str, float | int | None],
+    jsonl_path: Path,
+) -> MatchState:
+    """Commit a state mutation: bump seq_id, write JSONL diff line, return new state.
+
+    Caller is the arbiter (sole writer per D-02 / RESEARCH Pitfall 4). The
+    ``jsonl_path`` SHOULD be a per-match file at
+    ``data/event_log/{match_id}.jsonl``. ``t_state_committed`` is recorded
+    BEFORE the synchronous JSONL append to satisfy the D-03 / SPEC §6
+    bomb-detect → t_state_committed p50 < 100ms budget — disk write latency
+    is excluded from the latency math.
+
+    The 9-key commit-line schema per D-03:
+        seq_id, t_observed, t_ingested, t_arbited, t_state_committed,
+        t_theo_computed, t_quote_sent, source, event_type, fields_changed.
+
+    ``timestamps`` is a mutable dict supplied by the arbiter pre-populated with
+    ``t_observed, t_ingested, t_arbited`` and ``t_theo_computed: None,
+    t_quote_sent: None``. ``commit`` mutates it in place to record
+    ``t_state_committed`` (RESEARCH §"Code Examples").
+    """
+    new_state = prev.with_update(**fields_changed)
+    timestamps["t_state_committed"] = time.monotonic_ns()
+    line: dict[str, Any] = {
+        "seq_id": new_state.seq_id,
+        "t_observed": timestamps.get("t_observed"),
+        "t_ingested": timestamps.get("t_ingested"),
+        "t_arbited": timestamps.get("t_arbited"),
+        "t_state_committed": timestamps["t_state_committed"],
+        "t_theo_computed": timestamps.get("t_theo_computed"),
+        "t_quote_sent": timestamps.get("t_quote_sent"),
+        "source": source,
+        "event_type": event_type,
+        "fields_changed": fields_changed,
+    }
+    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+    with jsonl_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(line, separators=(",", ":")) + "\n")
+    return new_state
+
+
+def quarantine(
+    prev: MatchState,
+    fields_proposed: dict[str, Any],
+    *,
+    source: str,
+    event_type: str,
+    quarantine_reason: str,
+    t_observed: float,
+    jsonl_path: Path,
+) -> None:
+    """Record a quarantined event; state UNCHANGED.
+
+    ``prev`` is accepted (and unused at the body level) to keep the call-site
+    symmetric with ``commit(...)`` — the arbiter calls one or the other and
+    passes ``prev`` for context.
+
+    The 7-key quarantine-line schema per D-03:
+        seq_id (always None), quarantined (always True), quarantine_reason,
+        t_observed, source, event_type, fields_proposed.
+
+    Replay logic MUST filter ``seq_id is None`` before applying ``with_update``
+    (RESEARCH §"Common Pitfalls").
+    """
+    del prev  # symmetric with commit() signature; state unchanged.
+    line: dict[str, Any] = {
+        "seq_id": None,
+        "quarantined": True,
+        "quarantine_reason": quarantine_reason,
+        "t_observed": t_observed,
+        "source": source,
+        "event_type": event_type,
+        "fields_proposed": fields_proposed,
+    }
+    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+    with jsonl_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(line, separators=(",", ":")) + "\n")

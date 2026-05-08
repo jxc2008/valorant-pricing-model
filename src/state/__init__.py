@@ -1,13 +1,11 @@
-"""State engine — `MatchState` dataclass + JSONL event log (Phase 3).
+"""State engine — `MatchState` dataclass + JSONL event-log helpers (Phase 3).
 
-Re-exports MatchState from ``src.state.match_state`` so callers may write
-``from src.state import MatchState`` (the long-term canonical import path per
-Phase 3 D-01).
-
-The companion ``commit`` / ``quarantine`` helpers ship in plan 03-01 Task 2 and
-will be re-exported here at that point.
+Re-exports MatchState plus the single-writer JSONL helpers from
+``src.state.match_state`` so callers may write
+``from src.state import MatchState, commit, quarantine`` (the long-term
+canonical import path per Phase 3 D-01 / D-03).
 """
 
-from src.state.match_state import MatchState
+from src.state.match_state import MatchState, commit, quarantine
 
-__all__ = ["MatchState"]
+__all__ = ["MatchState", "commit", "quarantine"]

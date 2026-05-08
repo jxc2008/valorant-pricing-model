@@ -38,9 +38,10 @@ from pathlib import Path
 import pytest
 
 from src.config.constants import CONVICTION_CLIP_HIGH, CONVICTION_CLIP_LOW
-from src.pricing.data import HalfRates, MatchState, TheoOutput
+from src.pricing.data import HalfRates, TheoOutput
 from src.pricing.live_theo import LiveTheoEngine
 from src.pricing.round_conclusion import RoundConclusionLookup
+from src.state.match_state import MatchState
 
 MODEL_PATH: Path = Path("models/round_conclusion.json")
 HALF_RATES_PATH: Path = Path("data/half_win_rates.json")

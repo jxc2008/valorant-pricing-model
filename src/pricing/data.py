@@ -1,9 +1,9 @@
-"""Phase 1 pricing data shapes: HalfRates, MatchState, TheoOutput.
+"""Phase 1 pricing data shapes: HalfRates, TheoOutput.
 
-Phase 1 owns the MatchState dataclass per D-14. Phase 3 (REQ-match-state-engine)
-will move it to src/state/match_state.py and the orchestrator (live_theo.py)
-will re-import from there. The public re-export surface for the package lives
-in src/pricing/__init__.py — see that file for what downstream code consumes.
+MatchState moved to ``src/state/match_state.py`` per Phase 3 D-01
+(REQ-match-state-engine). Use ``from src.state.match_state import MatchState``
+or ``from src.state import MatchState``. The transition re-export shim that
+lived here in plan 03-01 Task 1 has been deleted as of plan 03-01 Task 2.
 
 Sources
 -------
@@ -13,6 +13,7 @@ Sources
 - reference/theo_engine.py:84-102 (Bayesian shrinkage salvage source)
 - 01-CONTEXT.md `<decisions>` D-17 (team_a/team_b), D-18 (map_side_orients),
   D-19 (map_winners), D-20 (LiveTheoEngine bundle pattern)
+- 03-CONTEXT.md D-01 (MatchState moved to src/state/match_state.py)
 """
 
 from __future__ import annotations
@@ -23,9 +24,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from src.config.constants import SHRINK_PRIOR
-from src.state.match_state import (
-    MatchState as MatchState,  # noqa: F401 — Phase 3 D-01 re-export shim, deleted in plan 03-01 Task 2
-)
 
 # --------------------------------------------------------------------------- #
 # 1. TheoOutput — public pricing output (PRD §2 / DEC-010)                    #
@@ -55,20 +53,7 @@ class TheoOutput:
 
 
 # --------------------------------------------------------------------------- #
-# 2. MatchState — moved to src/state/match_state.py per Phase 3 D-01           #
-# --------------------------------------------------------------------------- #
-# Phase 3 (REQ-match-state-engine) moved MatchState to src/state/match_state.py
-# with the v2 field set (cuts numerical_diff/side/econ_bucket; adds
-# attackers_alive / defenders_alive / time_left_s / seq_id / last_updated_ts).
-# A re-export shim is imported at module top so `from src.pricing.data import
-# MatchState` keeps working for the duration of the Wave 1 atomic-rename
-# commit; plan 03-01 Task 2 deletes the shim entirely. Downstream code MUST
-# migrate to `from src.state.match_state import MatchState` (or
-# `from src.state import MatchState`).
-
-
-# --------------------------------------------------------------------------- #
-# 3. HalfRates — concrete impl satisfying round_types.HalfRates Protocol      #
+# 2. HalfRates — concrete impl satisfying round_types.HalfRates Protocol      #
 # --------------------------------------------------------------------------- #
 
 

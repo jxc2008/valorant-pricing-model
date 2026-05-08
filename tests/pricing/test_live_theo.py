@@ -27,7 +27,7 @@ from src.config.constants import (
     MIN_ROUNDS_FULL_WEIGHT,
     SHRINK_PRIOR,
 )
-from src.pricing.data import HalfRates, MatchState, TheoOutput
+from src.pricing.data import HalfRates, TheoOutput
 from src.pricing.dp import BO3State, _advance_to_next_map
 from src.pricing.live_theo import (
     LiveTheoEngine,
@@ -43,6 +43,7 @@ from src.pricing.live_theo import (
     _RoundPFnImpl,
     _within_map_p_a_wins,
 )
+from src.state.match_state import MatchState
 
 # --------------------------------------------------------------------------- #
 # 1. Data shapes (Task 1)                                                     #
