@@ -887,13 +887,19 @@ def test_live_theo_engine_is_frozen() -> None:
 
 
 def test_live_theo_engine_accepts_optional_round_conclusion() -> None:
-    """D-20: round_conclusion parameter is optional (Phase 1 doesn't consume it)."""
+    """D-20: round_conclusion parameter is optional (Phase 1 doesn't consume it).
+
+    03-02: ``round_conclusion`` is now a v2 ``RoundConclusionLookup`` (not the
+    deleted v1 ``RoundConclusionFn`` callable). The engine still accepts an
+    optional value; Task 3 of plan 03-02 makes it required and wires the
+    ``state.bomb_planted`` dispatch (D-05).
+    """
     from src.pricing.round_conclusion import RoundConclusionLookup
 
     hr = _synthetic_half_rates()
     lookup = RoundConclusionLookup()
     state = _synthetic_match_state()
-    engine = LiveTheoEngine(half_rates=hr, round_conclusion=lookup.lookup)
+    engine = LiveTheoEngine(half_rates=hr, round_conclusion=lookup)
     out = engine(state)
     assert isinstance(out, TheoOutput)
 

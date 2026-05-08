@@ -47,7 +47,7 @@ from src.pricing.dp import (
     _advance_to_next_map,
     series_value,
 )
-from src.pricing.round_conclusion import RoundConclusionFn
+from src.pricing.round_conclusion import RoundConclusionLookup
 from src.pricing.round_types import round_p_for_round
 from src.state.match_state import MatchState
 
@@ -329,16 +329,16 @@ def _clip_conviction(theo: float) -> float:
 def _live_theo_impl(
     state: MatchState,
     half_rates: HalfRates,
-    round_conclusion: Optional[RoundConclusionFn] = None,  # noqa: UP045 — Optional for plan-mandated form
+    round_conclusion: Optional[RoundConclusionLookup] = None,  # noqa: UP045 — Optional for plan-mandated form
 ) -> TheoOutput:
     """Pure functional core of LiveTheoEngine. Importable for tests.
 
     Args:
-        state: Phase 1 stub MatchState (D-01 / D-02 + D-17/D-18/D-19).
+        state: MatchState v2 instance (Phase 3 D-01).
         half_rates: HalfRates instance (typically loaded from data/half_win_rates.json).
-        round_conclusion: Optional mid-round-conclusion lookup. Phase 1 returns
-            flat 0.5 from RoundConclusionLookup; absent -> not consumed in Phase 1
-            because the DP is between-rounds.
+        round_conclusion: Optional v2 round-conclusion lookup. Currently
+            unused by the body; Task 3 of plan 03-02 wires the bomb_planted
+            dispatch (D-05) and removes the Optional default.
 
     Returns:
         TheoOutput with theo_series, theo_map (per-map marginals), vega
@@ -668,7 +668,7 @@ class LiveTheoEngine:
     """
 
     half_rates: HalfRates
-    round_conclusion: Optional[RoundConclusionFn] = None  # noqa: UP045 — Optional retained
+    round_conclusion: Optional[RoundConclusionLookup] = None  # noqa: UP045 — Optional retained
 
     def __call__(self, state: MatchState) -> TheoOutput:
         # CR-04: bound memory by clearing the per-call closure registries +

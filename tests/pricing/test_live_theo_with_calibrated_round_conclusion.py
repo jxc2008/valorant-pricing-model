@@ -3,7 +3,7 @@
 Wires:
     HalfRates.from_json(data/half_win_rates.json)
         -> RoundConclusionLookup.from_json(models/round_conclusion.json)
-        -> LiveTheoEngine(half_rates=..., round_conclusion=lookup.lookup)
+        -> LiveTheoEngine(half_rates=..., round_conclusion=lookup)
         -> engine(mid_round_match_state) -> TheoOutput
 
 Asserts:
@@ -93,12 +93,12 @@ def test_lookup_loads_from_calibrated_json() -> None:
 
 
 def test_engine_constructs_with_calibrated_lookup() -> None:
-    """LiveTheoEngine accepts the calibrated lookup's `.lookup` as RoundConclusionFn."""
+    """LiveTheoEngine accepts the v2 calibrated RoundConclusionLookup directly."""
     if not MODEL_PATH.exists() or not HALF_RATES_PATH.exists():
         pytest.skip("Calibrated artifact or half_win_rates.json missing")
     half_rates = HalfRates.from_json(HALF_RATES_PATH)
     lookup = RoundConclusionLookup.from_json(MODEL_PATH)
-    engine = LiveTheoEngine(half_rates=half_rates, round_conclusion=lookup.lookup)
+    engine = LiveTheoEngine(half_rates=half_rates, round_conclusion=lookup)
     assert engine is not None
 
 
@@ -108,7 +108,7 @@ def test_engine_returns_theo_output_with_calibrated_lookup() -> None:
         pytest.skip("Calibrated artifact or half_win_rates.json missing")
     half_rates = HalfRates.from_json(HALF_RATES_PATH)
     lookup = RoundConclusionLookup.from_json(MODEL_PATH)
-    engine = LiveTheoEngine(half_rates=half_rates, round_conclusion=lookup.lookup)
+    engine = LiveTheoEngine(half_rates=half_rates, round_conclusion=lookup)
     state = _synthetic_mid_round_state()
 
     result = engine(state)
@@ -121,30 +121,24 @@ def test_engine_returns_theo_output_with_calibrated_lookup() -> None:
 
 
 def test_calibrated_lookup_returns_finite_value_for_in_distribution_key() -> None:
-    """Must-have #3: mid-round live_theo produces non-degenerate predictions
-    (when calibration cells exist for the queried key).
+    """v2 must-have: post-plant live_theo produces non-degenerate predictions
+    when the lookup has at least one populated cells_full cell.
 
-    Picks a (nd, bp) key likely to have data — (0, False) is the most-common
-    cell in any calibration dataset because every round starts there.
+    03-02: rewires from the v1 5-arg ``lookup(...)`` to the v2 ``post_plant_p``
+    surface keyed on ``(att, def_, time_bucket, side, map_name)``. The synthetic
+    v2 file ships one populated cell at ``(3, 2, 0, "atk", "Lotus")``; 03-07
+    replaces the synthetic file with the real ~25k-sample v2 calibration.
     """
     if not MODEL_PATH.exists():
         pytest.skip("Calibrated artifact missing — Path C deferred")
     lookup = RoundConclusionLookup.from_json(MODEL_PATH)
-    val = lookup.lookup(0, False, "atk", "full", "Lotus")
+    # 03-02: v1 cell counts (22/44/524/1886) replaced by v2 schema; 03-07 will
+    # add real v2 calibration. Hit the synthetic-cell key from the v2 file.
+    val = lookup.post_plant_p(3, 2, 0, "atk", "Lotus")
     assert 0.0 <= val <= 1.0
-
-    # Stronger signal: if calibration produced cells_minimal entries, at least
-    # one of them should produce a non-0.5 shrunk value (not exactly the
-    # uninformative prior).
-    if lookup.cells_minimal:
-        any_non_05 = any(
-            abs(c.shrunk() - 0.5) > 1e-9 for c in lookup.cells_minimal.values()
-        )
-        assert any_non_05, (
-            "cells_minimal populated but every shrunk() == 0.5 — calibration "
-            "produced only uninformative cells; check synthetic_round_events "
-            "fixture or live data."
-        )
+    # The synthetic cell shifts off side_baseline by > 0.01 (sanity check).
+    baseline = lookup.side_baseline.get("atk", 0.5)
+    assert abs(val - baseline) > 0.01
 
 
 def test_path_c_compat_no_json_falls_back_to_baseline() -> None:
@@ -159,9 +153,7 @@ def test_path_c_compat_no_json_falls_back_to_baseline() -> None:
     half_rates = HalfRates.from_json(HALF_RATES_PATH)
     # Path C: empty lookup, no cells. side_baseline defaults to {atk: 0.5, def: 0.5}.
     empty_lookup = RoundConclusionLookup()
-    engine = LiveTheoEngine(
-        half_rates=half_rates, round_conclusion=empty_lookup.lookup
-    )
+    engine = LiveTheoEngine(half_rates=half_rates, round_conclusion=empty_lookup)
 
     state = _synthetic_mid_round_state()
     result = engine(state)
@@ -170,5 +162,7 @@ def test_path_c_compat_no_json_falls_back_to_baseline() -> None:
     assert isinstance(result, TheoOutput)
     assert CONVICTION_CLIP_LOW <= result.theo_series <= CONVICTION_CLIP_HIGH
 
-    # Direct lookup call returns the side_baseline value (0.5)
-    assert empty_lookup.lookup(0, False, "atk", "full", "Lotus") == 0.5
+    # 03-02 v2: between_round_p / post_plant_p surfaces both default to 0.5
+    # under the empty lookup (Path C carry-forward).
+    assert empty_lookup.between_round_p("atk", "Lotus", 5) == 0.5
+    assert empty_lookup.post_plant_p(0, 0, 0, "atk", "Lotus") == 0.5
