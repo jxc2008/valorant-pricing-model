@@ -119,7 +119,7 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 
 ## Phase 3 — Live ingestion layer
 
-### REQ-match-state-engine (RESCOPED v2)
+### REQ-match-state-engine (RESCOPED v2) — **Complete (2026-05-08, plan 03-01)**
 - **Source:** roadmap.md §3.1; prd.md §5.2 (v2 pivot)
 - **Scope:** state engine
 - **Description:** Single `@dataclass(frozen=True, slots=True) MatchState` at `src/state/match_state.py` with fields:
@@ -127,6 +127,7 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
   `attackers_alive` / `defenders_alive` populated only when `bomb_planted=True`. Versioned via monotonic `seq_id`. Mutators (`with_update(...)`) bump `seq_id` and append every mutation to a JSONL event log on disk.
 - **Cut from v1 schema:** `econ_a/b` (not directly observable from broadcast), `ults_a/b` (cut from scope per DEC-024), `players_alive_a/b` (cut — replaced by post-plant-only `attackers_alive` / `defenders_alive` from a separate HUD widget).
 - **Acceptance:** quoting layer only acts on monotonically-increasing seq_ids; `seq_id` strictly monotonic over 1000 random `with_update` calls; JSONL replay reproduces final state.
+- **Implementation:** plan 03-01 — `src/state/match_state.py` (19-field frozen+slots dataclass + pure `with_update` + module-level `commit`/`quarantine` JSONL helpers per D-03 schema). Acceptance proven by `tests/ingestion/test_match_state.py::test_seq_id_strictly_monotonic` (hypothesis property test) and `tests/ingestion/test_match_state_jsonl.py::test_replay_determinism` (1000 commits → JSONL → in-order replay reconstructs state byte-for-byte).
 
 ### REQ-scoreboard-polling
 - **Source:** roadmap.md §3.2

@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 03
-current_plan: 1 of 9
+current_plan: 2 of 9
 status: in_progress
-stopped_at: Completed 03-00-test-infrastructure-PLAN.md
-last_updated: "2026-05-07T15:54:48Z"
-last_activity: 2026-05-07
+stopped_at: Completed 03-01-match-state-v2-migration-PLAN.md
+last_updated: "2026-05-08T12:03:19Z"
+last_activity: 2026-05-08
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 24
-  completed_plans: 16
-  percent: 67
+  completed_plans: 17
+  percent: 71
 ---
 
 # STATE — Valorant Live Pricing Model
 
 **Project:** Valorant Live Pricing Model
-**Last activity:** 2026-05-07
-**Last activity description:** Phase 03 Plan 00 complete — RED-stub test infrastructure (13 files / 31 xfails) + 9 new deps + src.state.* mypy strict override landed across 3 atomic commits.
+**Last activity:** 2026-05-08
+**Last activity description:** Phase 03 Plan 01 complete — atomic move of MatchState to src/state/match_state.py with v2 19-field set + pure with_update mutator + commit/quarantine JSONL helpers; replay determinism over 1000 commits proven; 268 passed / 26 xfailed.
 
 ---
 
@@ -35,18 +35,18 @@ progress:
 ## Current Position
 
 Phase: 03 (live-ingestion-layer) — IN PROGRESS
-Plan: 1 of 9 done (03-00 test infrastructure)
+Plan: 2 of 9 done (03-00 test infrastructure, 03-01 match-state-v2-migration)
 
 - **Current phase:** 03
-- **Current plan:** 1 of 9
-- **Status:** In progress; next plan is 03-01-match-state-v2-migration
-- **Progress:** [███████░░░] 67%
+- **Current plan:** 2 of 9
+- **Status:** In progress; next plan is 03-02-round-conclusion-v2-surface
+- **Progress:** [███████░░░] 71%
 
 ```
 Phase 0  [##########] Complete (3/3 plans)
 Phase 1  [##########] Complete (7/7 plans)
 Phase 2  [##########] Complete (5/5 plans)
-Phase 3  [#░░░░░░░░░] In progress (1/9 plans)
+Phase 3  [##░░░░░░░░] In progress (2/9 plans)
 Phase 4  [          ] Pending
 Phase 5  [          ] Pending
 Phase 6  [          ] Pending
@@ -60,7 +60,7 @@ Phase 7  [          ] Pending
 | 0 — Foundation | Complete (2026-04-27) | 3 (00-01, 00-02, 00-03) | 3 |
 | 1 — Core pricing engine | Complete | 7 (01-01..01-07) | 7 |
 | 2 — Round-event data | Complete (2026-05-01) | 5 (02-01..02-05) | 5 |
-| 3 — Live ingestion layer | In progress | 9 (03-00..03-08) | 1 |
+| 3 — Live ingestion layer | In progress | 9 (03-00..03-08) | 2 |
 | 4 — Quoting layer | Pending | none | — |
 | 5 — Validation | Pending | none | — |
 | 6 — Deployment | Pending | none | — |
@@ -77,6 +77,7 @@ Phase 7  [          ] Pending
 | Coverage on `src/pricing/` | ≥ 80% | not yet measured (263 tests pass) |
 | Docker image size | < 500 MB | not yet built |
 | Phase 03 P00 | 8 min, 3 tasks, 16 files | RED-stubs landed; 263 passed / 31 xfailed |
+| Phase 03 P01 | 6h 14m wall-clock (~30 min active), 2 tasks, 14 files | MatchState v2 + JSONL replay GREEN; 268 passed / 26 xfailed |
 
 ## Accumulated Context
 
@@ -86,6 +87,11 @@ Phase 7  [          ] Pending
 
 - **2026-05-07 — RED-stub xfail pattern: pytest.xfail() runtime call inside body, not @pytest.mark.xfail decorator.** Wave-N executors flip stubs by replacing the body; decorator removal would leave dead xfail-call lines. Recorded in 03-00 SUMMARY.
 - **2026-05-07 — Conftest fixtures return dict[str, Any] instead of MatchState dataclass.** Survives Wave 1 atomic move of MatchState from src/pricing/data.py to src/state/match_state.py — Wave 1's first task patches the `make_match_state` helper to return dataclass instances once src/state/match_state.py exists.
+- **2026-05-08 — One-line transition shim across Task 1 → Task 2 in src/pricing/data.py for MatchState.** Plan 03-01 picked the shim path (vs Task-1 hard-delete) so the import-rewrite seam was atomic at Task 1; Task 2 deletes the shim atomically with the helper additions. No long-term residue.
+- **2026-05-08 — All-positional dataclass fields with NO defaults on MatchState v2.** 19 fields total; forces every caller to be explicit. Mirrors the Phase 1 idiom and dodges the kw_only / mixed-default-after-non-default trap.
+- **2026-05-08 — `with_update` is pure (no JSONL I/O); module-level `commit()`/`quarantine()` helpers wrap with the disk-side audit append.** Per D-02 / D-03. Single-writer invariant documented at the helper module-docstring level.
+- **2026-05-08 — Replay test compares all 18 dataclass fields EXCEPT last_updated_ts.** D-02 marks last_updated_ts as informational-only. In-memory and replay paths run with_update at different real times; comparing every other field catches every actual divergence.
+- **2026-05-08 — `commit()` records t_state_committed BEFORE the JSONL write.** Disk write latency excluded from D-03 hot-path budget. `commit()` mutates the caller-supplied `timestamps` dict in place so the arbiter (Wave 3A) can read t_state_committed immediately after `commit()` returns.
 
 ### Recent decisions (cross-phase)
 
@@ -121,7 +127,7 @@ None.
 
 ## Session Continuity
 
-- **Last session ended:** 2026-05-07 — Phase 03 Plan 00 (test infrastructure) shipped. Commits: `95031ce` (deps + mypy override) → `888f5c6` (conftest + fixtures) → `c8e82f6` (13 RED-stub test files).
-- **Stopped at:** Completed 03-00-test-infrastructure-PLAN.md
-- **Next action:** Plan 03-01 (match-state-v2-migration). Wave 1 atomic move of MatchState from src/pricing/data.py to src/state/match_state.py + `with_update` mutator + JSONL append/replay. Conftest fixture `make_match_state` is the first patch target.
+- **Last session ended:** 2026-05-08 — Phase 03 Plan 01 (match-state-v2-migration) shipped. Commits: `143b9aa` (Task 1: MatchState v2 dataclass + with_update + atomic 5-site import rewrite) → `0ece084` (Task 2: commit/quarantine JSONL helpers + replay determinism + delete pricing/data.py shim).
+- **Stopped at:** Completed 03-01-match-state-v2-migration-PLAN.md
+- **Next action:** Plan 03-02 (round-conclusion-v2-surface). Wave 2A — `RoundConclusionLookup.between_round_p` / `post_plant_p` + delete v1 `lookup` method + live_theo D-05 dispatch (bomb_planted → post_plant_p; else → between-round path; mid-round-not-planted → between-round with degraded confidence).
 - **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs. Constraint detail in `.planning/intel/constraints.md`. Phase 3 implementation decisions in `.planning/phases/03-live-ingestion-layer/03-CONTEXT.md` (D-01 through D-14).
