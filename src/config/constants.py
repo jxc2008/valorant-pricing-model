@@ -272,3 +272,37 @@ ROUND_CONCLUSION_JSON_PATH: Final[str] = "models/round_conclusion.json"
 Atomic-replace target. `RoundConclusionLookup.from_json(path)` HARD-FAILS on
 schema_version != 2; v1 file recoverable via git history.
 """
+
+# --------------------------------------------------------------------------- #
+# Phase 3 — ingestion arbiter + event logs (DEC-006 v2 / D-03)               #
+# --------------------------------------------------------------------------- #
+
+ARBITER_TICK_HZ: Final[int] = 20
+"""Arbiter drain frequency (Hz). 20Hz = 50ms tick interval, well within the
+500ms event→state-commit budget. Used by src/main.py asyncio loop only;
+src/ingestion/arbiter.py exposes the bare tick() — driver picks the cadence.
+
+Source: 03-CONTEXT.md "Claude's discretion" / DEC-006 v2.
+"""
+
+ARBITER_SCORE_WINDOW_S: Final[float] = 2.0
+"""Score-change cross-confirm window (seconds). DEC-006 v2: a score_change
+event commits when ≥ 2 independent sources push events with t_observed
+within this window of each other.
+
+Source: 03-CONTEXT.md / DEC-006 v2 / CLAUDE.md CRule 10 simplified arbiter.
+"""
+
+EVENT_LOG_DIR: Final[str] = "data/event_log"
+"""JSONL diff log directory (one file per match_id). Gitignored per
+03-00-PLAN's .gitignore additions.
+
+Source: 03-CONTEXT.md D-03 / Plan 03-01 commit/quarantine helpers.
+"""
+
+METRICS_LOG_DIR: Final[str] = "data/metrics"
+"""6-stage timestamp metrics directory (one file per match_id). Phase 4
+fills t_theo_computed / t_quote_sent on a parallel metrics line per D-03.
+
+Source: 03-CONTEXT.md D-03 / SPEC §"Constraints" latency analysis.
+"""

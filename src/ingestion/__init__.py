@@ -1,1 +1,19 @@
-"""Ingestion layer — OCR, scoreboard polling, text listeners, cross-source arbiter (Phase 3)."""
+"""Live ingestion layer — sources + arbiter + JSONL event log (Phase 3)."""
+
+from src.ingestion.events import (
+    ConfirmedEvent,
+    EventType,
+    PendingEvent,
+    SourceName,
+)
+from src.ingestion.timestamps import TimestampRecord, mono_ns, wall_time
+
+__all__ = [
+    "ConfirmedEvent",
+    "EventType",
+    "PendingEvent",
+    "SourceName",
+    "TimestampRecord",
+    "mono_ns",
+    "wall_time",
+]
