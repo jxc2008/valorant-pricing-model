@@ -73,20 +73,43 @@ def tmp_event_log_path(tmp_path: Path) -> Path:
 def synthetic_frame_factory() -> Callable[..., np.ndarray]:
     """Build a fake BGR uint8 1920x1080 frame with optional digit overlays at ROI coords.
 
-    Used by Wave 3C OCR benchmarks. Caller passes (att, def_) tuples and
-    pixel coordinates; returns a frame ready for cv2 ROI extraction.
+    Used by Wave 3C OCR benchmarks. Caller passes optional digit values + the
+    ROI tuple they should be drawn inside; the factory renders the digit via
+    cv2.putText (white on black, FONT_HERSHEY_SIMPLEX, scale 1.5, thickness 3
+    — high contrast for tesseract).
+
+    Wave 3C (plan 03-05) upgrade: now actually draws digits inside the ROI
+    rectangles so OCR has something to parse. Each ROI tuple is (x1, y1, x2,
+    y2); the digit is rendered with its baseline near the ROI's lower-left
+    corner so the glyph fits within the rectangle.
     """
+    import cv2
 
     def _make(
         att: int | None = None,
         def_: int | None = None,
         att_roi: tuple[int, int, int, int] | None = None,
         def_roi: tuple[int, int, int, int] | None = None,
+        score_a: int | None = None,
+        score_b: int | None = None,
+        score_a_roi: tuple[int, int, int, int] | None = None,
+        score_b_roi: tuple[int, int, int, int] | None = None,
     ) -> np.ndarray:
         frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
-        # Wave 3C will draw digits via cv2.putText into the ROI rects;
-        # this stub just allocates the frame buffer for collection.
-        del att, def_, att_roi, def_roi  # populated by Wave 3C
+        for digit, roi in (
+            (att, att_roi),
+            (def_, def_roi),
+            (score_a, score_a_roi),
+            (score_b, score_b_roi),
+        ):
+            if digit is not None and roi is not None:
+                # Render at lower-left of ROI; white on black for high contrast.
+                x = roi[0] + 5
+                y = roi[3] - 5
+                cv2.putText(
+                    frame, str(digit), (x, y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3,
+                )
         return frame
 
     return _make
