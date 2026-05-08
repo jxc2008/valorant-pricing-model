@@ -54,6 +54,11 @@ EXPECTED_NAMES: tuple[str, ...] = (
     "POST_PLANT_TIMER_S",
     "TIME_BUCKET_WIDTH_S",
     "ROUND_CONCLUSION_JSON_PATH",
+    # Phase 3 — ingestion arbiter + event logs (DEC-006 v2 / D-03)
+    "ARBITER_TICK_HZ",
+    "ARBITER_SCORE_WINDOW_S",
+    "EVENT_LOG_DIR",
+    "METRICS_LOG_DIR",
 )
 
 
@@ -128,6 +133,10 @@ EXPECTED_TYPES: dict[str, type] = {
     "POST_PLANT_TIMER_S": float,
     "TIME_BUCKET_WIDTH_S": float,
     "ROUND_CONCLUSION_JSON_PATH": str,
+    "ARBITER_TICK_HZ": int,
+    "ARBITER_SCORE_WINDOW_S": float,
+    "EVENT_LOG_DIR": str,
+    "METRICS_LOG_DIR": str,
 }
 
 
