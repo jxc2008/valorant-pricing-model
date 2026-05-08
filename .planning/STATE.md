@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 03
-current_plan: 5 of 9
+current_plan: 6 of 9
 status: in_progress
-stopped_at: Completed 03-04-scoreboard-poller-PLAN.md
-last_updated: "2026-05-08T19:38:14Z"
+stopped_at: Completed 03-05-ocr-pipeline-PLAN.md
+last_updated: "2026-05-08T20:00:00Z"
 last_activity: 2026-05-08
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 24
-  completed_plans: 20
-  percent: 83
+  completed_plans: 21
+  percent: 88
 ---
 
 # STATE — Valorant Live Pricing Model
 
 **Project:** Valorant Live Pricing Model
 **Last activity:** 2026-05-08
-**Last activity description:** Phase 03 Plan 04 complete — async rib.gg scoreboard poller (REQ-scoreboard-polling) on Phase 2 ETL resilience patterns ported sync->async (Connection: close header + tenacity Retry-After-aware wait_base subclass capped 10s + 5-attempt cap + 5-failure cycle cooldown 60s); pushes one PendingEvent(source='ribgg', event_type='score_change', fields_proposed={a_round, b_round}) per non-degenerate fetch into Arbiter.score_changes for the DEC-006 v2 ≥2-source rule; 264 passed / 33 xfailed; 10 min wall-clock.
+**Last activity description:** Phase 03 Plan 05 complete — Tesseract OCR pipeline (REQ-ocr-pipeline / DEC-024 v2 / D-11/D-12/D-13/D-14): 4 async cadence workers (run_score_banner_worker @250ms / run_bomb_icon_worker @500ms / run_round_end_worker @100ms / run_post_plant_alive_worker @250ms with D-12 hard-gate on bomb_planted=True) + 4 sync decode helpers + shared ThreadPoolExecutor(max_workers=2) per RESEARCH §Pattern 4; FrameSource Protocol + StubFrameSource for tests + YouTubeFrameSource skeleton (TODO(phase-4)); 9 new constants with TODO(operator) ROI placeholders + scripts/dump_roi_overlay.py operator helper. Grep guard PASSES; mypy + ruff clean. 284 passed / 19 xfailed (down from 33; GREEN'd 6 OCR tests, kept 2 round-end xfails for Phase 3.5 fixture); 10 min wall-clock.
 
 ---
 
@@ -28,25 +28,25 @@ progress:
 
 - **Core value:** Live pricing engine for Valorant BO3 series + per-map Kalshi markets. Re-prices the series at any moment during a live match, hybrid market-maker / directional taker, fast enough to capture edge or — at minimum — avoid being adversely selected.
 - **Owner:** jxc2008@nyu.edu
-- **Status:** Phases 0/1/2 complete. Phase 3 (live ingestion) in progress — Plans 00/01/02/03/04 done; 4 plans remaining (03-05 OCR / 03-06 text-listener / 03-07 ETL re-run + calibration / 03-08 E2E gate).
+- **Status:** Phases 0/1/2 complete. Phase 3 (live ingestion) in progress — Plans 00/01/02/03/04/05 done; 3 plans remaining (03-06 text-listener / 03-07 ETL re-run + calibration / 03-08 E2E gate).
 - **Source-of-truth design docs:** `prd.md`, `roadmap.md`, `CLAUDE.md` at repo root.
 - **Locked decisions:** 22 (DEC-001 through DEC-022) — see `.planning/PROJECT.md` `<decisions>` blocks.
 
 ## Current Position
 
 Phase: 03 (live-ingestion-layer) — IN PROGRESS
-Plan: 5 of 9 done (03-00 test infrastructure, 03-01 match-state-v2-migration, 03-02 round-conclusion-v2-surface, 03-03 arbiter-and-latency, 03-04 scoreboard-poller)
+Plan: 6 of 9 done (03-00 test infrastructure, 03-01 match-state-v2-migration, 03-02 round-conclusion-v2-surface, 03-03 arbiter-and-latency, 03-04 scoreboard-poller, 03-05 ocr-pipeline)
 
 - **Current phase:** 03
-- **Current plan:** 5 of 9
-- **Status:** In progress; next plan is 03-05-ocr-pipeline
-- **Progress:** [████████▌░] 83%
+- **Current plan:** 6 of 9
+- **Status:** In progress; next plan is 03-06-text-listener
+- **Progress:** [████████▊░] 88%
 
 ```
 Phase 0  [##########] Complete (3/3 plans)
 Phase 1  [##########] Complete (7/7 plans)
 Phase 2  [##########] Complete (5/5 plans)
-Phase 3  [#####░░░░░] In progress (5/9 plans)
+Phase 3  [######░░░░] In progress (6/9 plans)
 Phase 4  [          ] Pending
 Phase 5  [          ] Pending
 Phase 6  [          ] Pending
@@ -60,7 +60,7 @@ Phase 7  [          ] Pending
 | 0 — Foundation | Complete (2026-04-27) | 3 (00-01, 00-02, 00-03) | 3 |
 | 1 — Core pricing engine | Complete | 7 (01-01..01-07) | 7 |
 | 2 — Round-event data | Complete (2026-05-01) | 5 (02-01..02-05) | 5 |
-| 3 — Live ingestion layer | In progress | 9 (03-00..03-08) | 5 |
+| 3 — Live ingestion layer | In progress | 9 (03-00..03-08) | 6 |
 | 4 — Quoting layer | Pending | none | — |
 | 5 — Validation | Pending | none | — |
 | 6 — Deployment | Pending | none | — |
@@ -81,6 +81,7 @@ Phase 7  [          ] Pending
 | Phase 03 P02 | 6h 49m wall-clock (~30 min active), 3 tasks, 14 files | RoundConclusion v2 surface + D-05 dispatch GREEN; 250 passed / 40 xfailed |
 | Phase 03 P03 | 7 min, 3 tasks, 8 files | DEC-006 v2 arbiter + 6-stage timestamps GREEN; 259 passed / 27 xfailed |
 | Phase 03 P04 | 10 min, 2 tasks, 5 files | Async rib.gg scoreboard poller + tenacity Retry-After-aware async resilience GREEN; 264 passed / 33 xfailed |
+| Phase 03 P05 | 10 min, 4 tasks, 11 files | Tesseract OCR pipeline (4 async workers + FrameSource Protocol + 9 constants + dump_roi_overlay.py operator helper) GREEN; 284 passed / 19 xfailed (GREEN'd 6 OCR tests; round-end-banner placeholder x2 xfailed for Phase 3.5 fixture) |
 
 ## Accumulated Context
 
@@ -109,6 +110,12 @@ Phase 7  [          ] Pending
 - **2026-05-08 — _extract_score_change_fields returns FULL {a_round, b_round} fields_proposed shape (NOT diff-only).** Arbiter groups score_change events by tuple(sorted(fields_proposed.items())); diff-only ribgg pushes wouldn't match full-shape OCR pushes and the ≥2-source rule would never fire.
 - **2026-05-08 — Defensive _extract_score_change_fields returns None on sparse / non-int payloads.** The arbiter's existing 5s staleness kill-switch handles extended response gaps; hard-failing on a transient JSON-shape blip would propagate to a cycle-level exception + cooldown unnecessarily.
 - **2026-05-08 — Same-commit Rule-3 prophylactic for tests/config/test_constants.py allow-list.** Wave 3A's SUMMARY documented this exact failure as a recurring blocking auto-fix when new constants land. Updating EXPECTED_NAMES + EXPECTED_TYPES in the SAME commit as the constants definition skips the post-hoc fix loop.
+- **2026-05-08 — OCR module docstring paraphrases the DEC-024 v2 cuts.** Initial draft used the literal forbidden tokens (kill_feed / ult_orb / etc) inside a code-fenced grep example block; the same grep guard tripped on the comment that documented the guard. Resolution: paraphrase ('killfeed parsing' / 'ult tracking' / etc) and reference the guard command without echoing the literal substrings.
+- **2026-05-08 — Bomb-icon worker keeps a local last_bomb_state mirror, doesn't read arbiter.state.bomb_planted to gate transitions.** Reading arbiter.state would couple worker continuity to Phase-4 mode-flips that could induce phantom edge-firings. Local mirror is single-cycle stale by construction but conservative.
+- **2026-05-08 — All OCR decode helpers run inside a shared _OCR_EXECUTOR ThreadPoolExecutor(max_workers=2) module-level singleton.** RESEARCH §Pattern 4: pytesseract.image_to_string is blocking subprocess.Popen which releases GIL; max_workers > 2 hits subprocess fork pressure. Tested empirically: 60-frame p50 lands well under 100ms after first-call fork amortizes.
+- **2026-05-08 — Score-banner OCR worker pushes FULL {a_round, b_round} fields_proposed shape (not diff-only).** Matches the rib.gg poller's emission shape (03-04 SUMMARY) so the arbiter's signature-grouping over fields_proposed.items() trips the ≥2-source cross-confirm rule (DEC-006 v2). Diff-only would never match the full-shape ribgg pushes and the cross-confirm would never fire.
+- **2026-05-08 — D-13 carry-forward without per-frame quarantine PendingEvent.** Workers log + skip-cycle on parse failure; the existing 5s staleness kill-switch handles extended degradation. Conflating with per-frame quarantine PendingEvents would race against the soft-commit contract that the arbiter implements for bomb_events.
+- **2026-05-08 — _detect_round_end_banner ships as a placeholder gray-pixel-content threshold; both round-end tests xfail with Phase 3.5 operator-recalibrate TODO.** Building a synthetic round-end banner frame to exercise the placeholder reliably requires either operator-supplied banner template OR a sophisticated synthetic banner mock — neither in scope for Plan 03-05. xfail with explicit Phase 3.5 TODO is the clean signal for downstream calibration work.
 
 ### Recent decisions (cross-phase)
 
@@ -144,7 +151,7 @@ None.
 
 ## Session Continuity
 
-- **Last session ended:** 2026-05-08 — Phase 03 Plan 04 (scoreboard-poller) shipped. Commits: `440b656` (Task 1: feat — async rib.gg scoreboard poller with tenacity resilience + 3 new constants) → `5de7e6a` (Task 2: test — aioresponses-mocked fetch + Retry-After honoring).
-- **Stopped at:** Completed 03-04-scoreboard-poller-PLAN.md
-- **Next action:** Plan 03-05 (ocr-pipeline). Wave 3C — Tesseract-only OCR pipeline against three HUD targets (score banner / bomb-plant icon / round-end banner) + post-plant attackers/defenders-alive widget per DEC-024 v2 / D-11/D-12/D-13. Pushes PendingEvent(source="ocr_score" / "ocr_bomb" / "ocr_round_end" / "ocr_post_plant_alive") into the corresponding arbiter deques.
+- **Last session ended:** 2026-05-08 — Phase 03 Plan 05 (ocr-pipeline) shipped. Commits: `ebbb840` (Task 1: feat — OCR constants + FrameSource Protocol + StubFrameSource) → `b0acf99` (Task 2: feat — Tesseract OCR pipeline with 4 async workers, REQ-ocr-pipeline / DEC-024 v2) → `d61b1c1` (Task 3: test — OCR worker tests + benchmarks; xfail placeholder ROIs per D-11) → `6f825fd` (Task 4: feat — scripts/dump_roi_overlay.py operator ROI calibration helper).
+- **Stopped at:** Completed 03-05-ocr-pipeline-PLAN.md
+- **Next action:** Plan 03-06 (text-listener). Wave 3D — Twitter v2 streaming listener with degrade-to-no-op on missing TWITTER_BEARER_TOKEN; pushes PendingEvent(source="twitter", event_type="score_change") into Arbiter.score_changes as a soft cross-confirm. Twitter NEVER sole-sources a score commit (arbiter requires ≥2 distinct sources).
 - **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs. Constraint detail in `.planning/intel/constraints.md`. Phase 3 implementation decisions in `.planning/phases/03-live-ingestion-layer/03-CONTEXT.md` (D-01 through D-14).
