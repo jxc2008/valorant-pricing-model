@@ -43,6 +43,7 @@ from src.pricing.live_theo import (
     _RoundPFnImpl,
     _within_map_p_a_wins,
 )
+from src.pricing.round_conclusion import RoundConclusionLookup
 from src.state.match_state import MatchState
 
 # --------------------------------------------------------------------------- #
@@ -459,26 +460,32 @@ def test_clip_conviction_clips_to_dec_012_band() -> None:
 
 def test_live_theo_impl_returns_theo_output_with_clipped_series() -> None:
     """REQ-theo-series-output: theo_series in [CONVICTION_CLIP_LOW, CONVICTION_CLIP_HIGH]."""
+    from src.pricing.round_conclusion import RoundConclusionLookup
+
     hr = _synthetic_half_rates()
     state = _synthetic_match_state()
-    out = _live_theo_impl(state, hr)
+    out = _live_theo_impl(state, hr, RoundConclusionLookup())
     assert isinstance(out, TheoOutput)
     assert CONVICTION_CLIP_LOW <= out.theo_series <= CONVICTION_CLIP_HIGH
 
 
 def test_live_theo_impl_theo_map_length_matches_map_pool() -> None:
     """REQ-theo-map-output: len(theo_map) == len(map_pool)."""
+    from src.pricing.round_conclusion import RoundConclusionLookup
+
     hr = _synthetic_half_rates()
     state = _synthetic_match_state()
-    out = _live_theo_impl(state, hr)
+    out = _live_theo_impl(state, hr, RoundConclusionLookup())
     assert len(out.theo_map) == len(state.map_pool) == 3
 
 
 def test_live_theo_impl_theo_map_values_in_clip_range() -> None:
     """REQ-theo-map-output: each theo_map[i] in [CONVICTION_CLIP_LOW, CONVICTION_CLIP_HIGH]."""
+    from src.pricing.round_conclusion import RoundConclusionLookup
+
     hr = _synthetic_half_rates()
     state = _synthetic_match_state()
-    out = _live_theo_impl(state, hr)
+    out = _live_theo_impl(state, hr, RoundConclusionLookup())
     for p in out.theo_map:
         assert CONVICTION_CLIP_LOW <= p <= CONVICTION_CLIP_HIGH
 
@@ -791,14 +798,20 @@ def test_data_weight_for_map_zero_when_team_has_no_data() -> None:
 
 
 def test_live_theo_engine_call_surface() -> None:
-    """D-20: LiveTheoEngine(half_rates)(state) returns the same TheoOutput as
-    _live_theo_impl(state, half_rates, None).
+    """D-20: LiveTheoEngine(half_rates, lookup)(state) returns the same TheoOutput as
+    _live_theo_impl(state, half_rates, lookup).
+
+    03-02: ``round_conclusion`` is now REQUIRED. The empty lookup produces
+    bit-identical between-round behavior to the Phase 1+2 stub (side_baseline
+    defaults to 0.5/0.5; bomb_planted=False routes the entire DP through
+    ``series_value(bo3, fn)``).
     """
     hr = _synthetic_half_rates()
     state = _synthetic_match_state()
-    engine = LiveTheoEngine(half_rates=hr)
+    lookup = RoundConclusionLookup()
+    engine = LiveTheoEngine(half_rates=hr, round_conclusion=lookup)
     out_engine = engine(state)
-    out_impl = _live_theo_impl(state, hr, None)
+    out_impl = _live_theo_impl(state, hr, lookup)
     assert out_engine.theo_series == out_impl.theo_series
     assert out_engine.theo_map == out_impl.theo_map
     assert math.isclose(out_engine.vega, out_impl.vega, rel_tol=1e-9)
@@ -816,7 +829,7 @@ def test_no_memory_leak_across_live_theo_calls() -> None:
 
     hr = _synthetic_half_rates()
     state = _synthetic_match_state()
-    engine = LiveTheoEngine(half_rates=hr)
+    engine = LiveTheoEngine(half_rates=hr, round_conclusion=RoundConclusionLookup())
     for _ in range(100):
         engine(state)
 
@@ -843,7 +856,7 @@ def test_live_theo_engine_clears_caches_even_on_exception() -> None:
 
     hr = _synthetic_half_rates()
     state = _synthetic_match_state()
-    engine = LiveTheoEngine(half_rates=hr)
+    engine = LiveTheoEngine(half_rates=hr, round_conclusion=RoundConclusionLookup())
 
     # Prime the registries with one good call.
     engine(state)
@@ -877,7 +890,7 @@ def test_live_theo_engine_clears_caches_even_on_exception() -> None:
 def test_live_theo_engine_is_frozen() -> None:
     """D-20: LiveTheoEngine is a frozen dataclass."""
     hr = _synthetic_half_rates()
-    engine = LiveTheoEngine(half_rates=hr)
+    engine = LiveTheoEngine(half_rates=hr, round_conclusion=RoundConclusionLookup())
     with pytest.raises(dataclasses.FrozenInstanceError):
         engine.half_rates = HalfRates(  # type: ignore[misc]
             team_rates={},
@@ -886,16 +899,13 @@ def test_live_theo_engine_is_frozen() -> None:
         )
 
 
-def test_live_theo_engine_accepts_optional_round_conclusion() -> None:
-    """D-20: round_conclusion parameter is optional (Phase 1 doesn't consume it).
+def test_live_theo_engine_accepts_round_conclusion_lookup() -> None:
+    """D-20 / D-05: round_conclusion is now REQUIRED v2 RoundConclusionLookup.
 
-    03-02: ``round_conclusion`` is now a v2 ``RoundConclusionLookup`` (not the
-    deleted v1 ``RoundConclusionFn`` callable). The engine still accepts an
-    optional value; Task 3 of plan 03-02 makes it required and wires the
-    ``state.bomb_planted`` dispatch (D-05).
+    03-02 Task 3: ``round_conclusion`` is no longer Optional — every
+    LiveTheoEngine constructor must pass a v2 RoundConclusionLookup. The empty
+    lookup gives the Path-C carry-forward (side_baseline 0.5/0.5).
     """
-    from src.pricing.round_conclusion import RoundConclusionLookup
-
     hr = _synthetic_half_rates()
     lookup = RoundConclusionLookup()
     state = _synthetic_match_state()
@@ -977,7 +987,7 @@ def test_live_theo_marginalization_consistency_dec002() -> None:
 
     hr = _synthetic_half_rates()
     state = _synthetic_match_state(map_idx=0, a_round=3, b_round=2)
-    engine = LiveTheoEngine(half_rates=hr)
+    engine = LiveTheoEngine(half_rates=hr, round_conclusion=RoundConclusionLookup())
     out = engine(state)
 
     bo3 = _bo3_state_from_match_state(state)
@@ -1015,7 +1025,7 @@ def test_live_theo_end_to_end_synthetic_mid_map() -> None:
         map_side_orients=("a_atk", "a_def", "a_atk"),
         map_winners=(True, None, None),
     )
-    engine = LiveTheoEngine(half_rates=hr)
+    engine = LiveTheoEngine(half_rates=hr, round_conclusion=RoundConclusionLookup())
     out = engine(state)
     assert CONVICTION_CLIP_LOW <= out.theo_series <= CONVICTION_CLIP_HIGH
     assert len(out.theo_map) == 3
@@ -1095,7 +1105,7 @@ def test_live_theo_property_invariants_hypothesis() -> None:
             side_orient=side_orient,
             map_winners=tuple(winners),
         )
-        engine = LiveTheoEngine(half_rates=hr)
+        engine = LiveTheoEngine(half_rates=hr, round_conclusion=RoundConclusionLookup())
         out = engine(state)
         assert CONVICTION_CLIP_LOW <= out.theo_series <= CONVICTION_CLIP_HIGH
         for p in out.theo_map:
@@ -1280,7 +1290,7 @@ def test_live_theo_asymmetric_pistols_match_unset_pistols_after_dp_propagation()
     state_set_b = _synthetic_match_state(
         pistol_winner_a={0: False, 1: False, 2: False},
     )
-    engine = LiveTheoEngine(half_rates=asymmetric_hr)
+    engine = LiveTheoEngine(half_rates=asymmetric_hr, round_conclusion=RoundConclusionLookup())
     out_unset = engine(state_unset)
     out_set_a = engine(state_set_a)
     out_set_b = engine(state_set_b)

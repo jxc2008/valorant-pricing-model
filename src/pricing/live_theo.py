@@ -36,7 +36,9 @@ from src.config.constants import (
     CONVICTION_CLIP_HIGH,
     CONVICTION_CLIP_LOW,
     MIN_ROUNDS_FULL_WEIGHT,
+    POST_PLANT_TIMER_S,
     REGULATION_HALF,
+    TIME_BUCKET_WIDTH_S,
     WIN_THRESHOLD,
 )
 from src.pricing.data import HalfRates, TheoOutput
@@ -329,37 +331,79 @@ def _clip_conviction(theo: float) -> float:
 def _live_theo_impl(
     state: MatchState,
     half_rates: HalfRates,
-    round_conclusion: Optional[RoundConclusionLookup] = None,  # noqa: UP045 — Optional for plan-mandated form
+    round_conclusion: RoundConclusionLookup,
 ) -> TheoOutput:
     """Pure functional core of LiveTheoEngine. Importable for tests.
 
     Args:
         state: MatchState v2 instance (Phase 3 D-01).
         half_rates: HalfRates instance (typically loaded from data/half_win_rates.json).
-        round_conclusion: Optional v2 round-conclusion lookup. Currently
-            unused by the body; Task 3 of plan 03-02 wires the bomb_planted
-            dispatch (D-05) and removes the Optional default.
+        round_conclusion: v2 round-conclusion lookup (REQUIRED). Phase 4 callers
+            initialize via ``RoundConclusionLookup.from_json(...)``; tests can
+            construct empty / synthetic lookups directly.
 
     Returns:
         TheoOutput with theo_series, theo_map (per-map marginals), vega
         (DEC-018), and confidence (DP-mass-weighted per D-08).
-    """
-    # NOTE: round_conclusion is reserved for mid-round vega refinement in
-    # Phase 5 (D-11). Currently unused by the orchestrator; pass-through
-    # preserved for D-20 bundle.
-    _ = round_conclusion  # silence unused-argument lint until Phase 5 wires it
 
+    Dispatch (D-05):
+      - ``state.bomb_planted=True``: post-plant override. The CURRENT round's
+        ``p_round`` comes from ``round_conclusion.post_plant_p(att, def_,
+        time_bucket, side, map_name)``; future-round transitions ALWAYS use
+        between-round semantics (no nested post-plant lookups in the recursion).
+      - ``state.bomb_planted=False``: between-round path. The DP runs end-to-end
+        through ``series_value`` with ``fn`` (the standard between-round
+        ``_RoundPFnImpl`` closure).
+    """
     bo3 = _bo3_state_from_match_state(state)
     fn = _RoundPFnImpl(match_state=state, half_rates=half_rates)
 
-    theo_series_raw = series_value(bo3, fn)
+    if state.bomb_planted:
+        # D-05: post-plant dispatch — single current-round override.
+        # state.time_left_s, attackers_alive, defenders_alive are guaranteed
+        # non-None by the arbiter when bomb_planted=True; defensive None checks
+        # below keep mypy --strict clean and protect against malformed callers.
+        if (
+            state.time_left_s is None
+            or state.attackers_alive is None
+            or state.defenders_alive is None
+        ):
+            # Defensive: bomb_planted=True with missing post-plant fields →
+            # fall back to between-round path with degraded confidence (per
+            # D-05 contract). The mode selector in Phase 4 maps low confidence
+            # to IDLE.
+            theo_series_raw = series_value(bo3, fn)
+        else:
+            time_bucket_idx = int(
+                min(state.time_left_s, POST_PLANT_TIMER_S) / TIME_BUCKET_WIDTH_S
+            )
+            p_round = round_conclusion.post_plant_p(
+                att=state.attackers_alive,
+                def_=state.defenders_alive,
+                time_bucket=time_bucket_idx,
+                side=state.side_orient,
+                map_name=state.map_pool[state.map_idx],
+            )
+            # Future-round transitions ALWAYS use between-round semantics
+            # (D-05 — no nested post-plant lookups in the recursion). `fn` is
+            # the between-round closure; series_value uses it for the rest of
+            # the DP.
+            state_after_a = _advance_round(bo3, a_wins=True)
+            state_after_b = _advance_round(bo3, a_wins=False)
+            theo_series_raw = (
+                p_round * series_value(state_after_a, fn)
+                + (1.0 - p_round) * series_value(state_after_b, fn)
+            )
+    else:
+        theo_series_raw = series_value(bo3, fn)
+
     theo_series = _clip_conviction(theo_series_raw)
     theo_map = tuple(
         _marginal_map_prob(state, m, half_rates) for m in range(len(state.map_pool))
     )
 
-    # Vega + confidence finalized in Task 2b; placeholder values here so
-    # ``_live_theo_impl`` is end-to-end callable for Task 2a tests.
+    # Vega + confidence: vega uses between-round closure (DEC-018 — symmetric
+    # one-step branches); confidence is DP-mass-weighted per D-08.
     vega = _compute_vega(bo3, fn)
     confidence = _compute_confidence(state, half_rates)
 
@@ -653,22 +697,26 @@ class LiveTheoEngine:
     """Single canonical pricing entry point — bundle pattern per D-20.
 
     Preserves PRD §6 / DEC-010 / CRule 1's state-only call surface:
-        engine = LiveTheoEngine(half_rates)
+        engine = LiveTheoEngine(half_rates, round_conclusion)
         engine(state) -> TheoOutput
 
-    Phase 4 instantiates once per match. When Phase 4 needs additional
-    dependencies (e.g., MetricsEmitter), they're added as constructor
-    arguments without changing the per-call __call__ signature.
+    03-02: ``round_conclusion`` is now REQUIRED (D-05 dispatch). Phase 4
+    instantiates once per match via
+    ``LiveTheoEngine(half_rates, RoundConclusionLookup.from_json(...))``.
+    Tests can pass an empty ``RoundConclusionLookup()`` to get the side-baseline
+    Path-C behavior (bit-identical to the Phase 1 stub).
 
     Usage:
         from src.pricing import LiveTheoEngine, HalfRates
+        from src.pricing.round_conclusion import RoundConclusionLookup
         half_rates = HalfRates.from_json("data/half_win_rates.json")
-        engine = LiveTheoEngine(half_rates)
+        lookup = RoundConclusionLookup.from_json("models/round_conclusion.json")
+        engine = LiveTheoEngine(half_rates, lookup)
         out = engine(state)  # state: MatchState
     """
 
     half_rates: HalfRates
-    round_conclusion: Optional[RoundConclusionLookup] = None  # noqa: UP045 — Optional retained
+    round_conclusion: RoundConclusionLookup
 
     def __call__(self, state: MatchState) -> TheoOutput:
         # CR-04: bound memory by clearing the per-call closure registries +
