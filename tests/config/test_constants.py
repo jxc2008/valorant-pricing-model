@@ -50,12 +50,10 @@ EXPECTED_NAMES: tuple[str, ...] = (
     # Phase 2 — calibration
     "MIN_CELL_N",
     "MID_ROUND_HEARTBEAT_S",
-    # Phase 2 — economy buckets
-    "ECON_BUCKET_FULL_FLOOR",
-    "ECON_BUCKET_SEMI_BUY_FLOOR",
-    "ECON_BUCKET_SEMI_ECO_FLOOR",
-    # Phase 2 — Path B contingency
-    "OCR_FRAMES_PER_SECOND",
+    # Phase 3 — round-conclusion v2 (D-04 / D-06 / D-10)
+    "POST_PLANT_TIMER_S",
+    "TIME_BUCKET_WIDTH_S",
+    "ROUND_CONCLUSION_JSON_PATH",
 )
 
 
@@ -127,10 +125,9 @@ EXPECTED_TYPES: dict[str, type] = {
     "RIBGG_RATE_LIMIT_RPS": float,
     "MIN_CELL_N": int,
     "MID_ROUND_HEARTBEAT_S": float,
-    "ECON_BUCKET_FULL_FLOOR": int,
-    "ECON_BUCKET_SEMI_BUY_FLOOR": int,
-    "ECON_BUCKET_SEMI_ECO_FLOOR": int,
-    "OCR_FRAMES_PER_SECOND": float,
+    "POST_PLANT_TIMER_S": float,
+    "TIME_BUCKET_WIDTH_S": float,
+    "ROUND_CONCLUSION_JSON_PATH": str,
 }
 
 
@@ -265,25 +262,18 @@ def test_mid_round_heartbeat_positive_seconds() -> None:
     assert constants.MID_ROUND_HEARTBEAT_S > 0
 
 
-def test_econ_bucket_floors_strictly_decreasing() -> None:
-    """CON-economy-buckets — full > semi-buy > semi-eco floor; eco implicit < semi-eco."""
-    assert (
-        constants.ECON_BUCKET_FULL_FLOOR
-        > constants.ECON_BUCKET_SEMI_BUY_FLOOR
-        > constants.ECON_BUCKET_SEMI_ECO_FLOOR
-        > 0
-    )
+def test_post_plant_timer_is_45_seconds() -> None:
+    """03-CONTEXT.md D-14: Valorant post-plant bomb timer."""
+    assert constants.POST_PLANT_TIMER_S == 45.0
 
 
-def test_econ_bucket_floors_match_claudemd_table() -> None:
-    """CLAUDE.md "Domain constants" — bucket floors locked at 20000 / 10000 / 5000."""
-    assert (
-        constants.ECON_BUCKET_FULL_FLOOR,
-        constants.ECON_BUCKET_SEMI_BUY_FLOOR,
-        constants.ECON_BUCKET_SEMI_ECO_FLOOR,
-    ) == (20_000, 10_000, 5_000)
+def test_time_bucket_width_is_5_seconds() -> None:
+    """03-CONTEXT.md D-10: 9 buckets across the 45s post-plant timer."""
+    assert constants.TIME_BUCKET_WIDTH_S == 5.0
+    # 45 / 5 = 9 buckets — sanity check the math.
+    assert constants.POST_PLANT_TIMER_S / constants.TIME_BUCKET_WIDTH_S == 9.0
 
 
-def test_ocr_fps_positive() -> None:
-    """D-10: Path B contingency frame rate (placeholder, deferred)."""
-    assert constants.OCR_FRAMES_PER_SECOND > 0
+def test_round_conclusion_json_path_default() -> None:
+    """D-06: canonical disk path for the v2 calibrated lookup."""
+    assert constants.ROUND_CONCLUSION_JSON_PATH == "models/round_conclusion.json"

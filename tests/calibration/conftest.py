@@ -9,7 +9,8 @@ Sources
 - 02-VALIDATION.md (Wave 0: synthetic round_events row factory, in-memory SQLite)
 - 02-RESEARCH.md §"Pattern 3: Bottom-up shrinkage walk"
 - D-06 / D-07 / D-09 / CON-round-events-schema
-- src/pricing/economy.py (canonical credits_to_bucket — bit-identical with calibrator)
+- 03-02: src.pricing.economy DELETED per CLAUDE.md "Economy buckets — DEPRECATED in v2".
+  Local stub retained so the v1 calibrator test still parses; 03-07 rewrites the calibrator.
 """
 
 from __future__ import annotations
@@ -20,7 +21,17 @@ from typing import Any
 
 import pytest
 
-from src.pricing.economy import credits_to_bucket
+
+def credits_to_bucket(credits: int) -> str:
+    # 03-02: src.pricing.economy DELETED per CLAUDE.md "Economy buckets — DEPRECATED in v2".
+    # Local stub so this v1 calibrator test still parses; 03-07 rewrites the calibrator.
+    if credits >= 20_000:
+        return "full"
+    if credits >= 10_000:
+        return "semi-buy"
+    if credits >= 5_000:
+        return "semi-eco"
+    return "eco"
 
 
 def _make_state(

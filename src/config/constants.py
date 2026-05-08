@@ -238,39 +238,37 @@ This keeps Phase 2 calibration data and Phase 3 runtime data on the same grid.
 """
 
 # --------------------------------------------------------------------------- #
-# Phase 2 — economy buckets (CON-economy-buckets / CLAUDE.md "Domain constants") #
+# Phase 2 — economy buckets (DELETED in Phase 3 v2; see CLAUDE.md "Economy    #
+# buckets — DEPRECATED in v2"). Bucket constants removed because their sole   #
+# caller (src/pricing/economy.credits_to_bucket) has no callers after the v2  #
+# rekey of round_conclusion.json. Forensic recovery via git show HEAD~N.     #
 # --------------------------------------------------------------------------- #
 
-ECON_BUCKET_FULL_FLOOR: Final[int] = 20_000
-"""Lower bound (inclusive) for `econ_bucket == "full"` (CON-economy-buckets).
-
-Source: CLAUDE.md "Domain constants" / inherited from thunderedge/match_round_data.
-Used by src.pricing.economy.credits_to_bucket. NEVER inline this literal — every
-caller imports from here per CRule 12 / CON-no-magic-numbers.
-"""
-
-ECON_BUCKET_SEMI_BUY_FLOOR: Final[int] = 10_000
-"""Lower bound (inclusive) for `econ_bucket == "semi-buy"` (CON-economy-buckets).
-
-Source: CLAUDE.md "Domain constants". Range: [10000, 19999].
-"""
-
-ECON_BUCKET_SEMI_ECO_FLOOR: Final[int] = 5_000
-"""Lower bound (inclusive) for `econ_bucket == "semi-eco"` (CON-economy-buckets).
-
-Source: CLAUDE.md "Domain constants". Range: [5000, 9999]. Below this floor
-(< 5000) the bucket is "eco".
-"""
+# OCR cadences moved to "Phase 3 — OCR pipeline" section (03-05 PLAN owns).
 
 # --------------------------------------------------------------------------- #
-# Phase 2 — Path B contingency (deferred per 02-RESEARCH.md Summary)          #
+# Phase 3 — round-conclusion v2 (D-04 / D-06 / D-10)                          #
 # --------------------------------------------------------------------------- #
 
-OCR_FRAMES_PER_SECOND: Final[float] = 1.0
-"""Path B OCR frame extraction rate (D-10 — only used if Path A fails).
+POST_PLANT_TIMER_S: Final[float] = 45.0
+"""Valorant post-plant bomb timer (seconds).
 
-Source: D-10 (CONTEXT.md) / 02-RESEARCH.md §"Project Constraints" #6.
-Currently unused at runtime — Path A is the verified primary path. Constant
-declared so the Path B contingency stub (scripts/ocr_round_events.py) has
-its threshold pre-located in constants.py without a future planning loop.
+Source: 03-CONTEXT.md D-14 / Riot rules. Drives `time_remaining_bucket`
+computation in live_theo's post-plant dispatch path. Bombs that exceed this
+timer auto-detonate; live_theo clips `state.time_left_s` to this max.
+"""
+
+TIME_BUCKET_WIDTH_S: Final[float] = 5.0
+"""Width of each post-plant time bucket (seconds); 9 buckets across 0-45s.
+
+Source: 03-CONTEXT.md D-10. Buckets: [0-5, 5-10, ..., 40-45]. Cell estimate
+~3150 cells_full slots × ~25k post-plant samples → ~8 samples/cell average,
+shrunk to parent (cells_no_time) per Bayesian SHRINK_PRIOR=15.
+"""
+
+ROUND_CONCLUSION_JSON_PATH: Final[str] = "models/round_conclusion.json"
+"""Canonical disk path for the v2 calibrated lookup (D-06).
+
+Atomic-replace target. `RoundConclusionLookup.from_json(path)` HARD-FAILS on
+schema_version != 2; v1 file recoverable via git history.
 """

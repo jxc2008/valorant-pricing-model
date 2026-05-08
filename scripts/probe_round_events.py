@@ -24,7 +24,7 @@ Sources
 - 02-CONTEXT.md D-01..D-09
 - CON-round-events-schema (constraints.md)
 - src/config/constants.py (RIBGG_*, MID_ROUND_HEARTBEAT_S)
-- src/pricing/economy.py (credits_to_bucket — single canonical impl)
+- credits_to_bucket inline shim (TODO 03-07 — src/pricing/economy.py was DELETED in 03-02)
 - CRule 12 (no magic numbers); CRule 13 (dry-run by default)
 - BLOCKER 4 (revision feedback): perspective-symmetric row doubling
 - W6 (revision feedback): Retry-After header honoring
@@ -57,7 +57,20 @@ from src.config.constants import (
     RIBGG_TARGET_MATCH_COUNT,
     RIBGG_TIER_FILTER,
 )
-from src.pricing.economy import credits_to_bucket
+
+
+# TODO(03-07): the v2 ETL re-run rewrite removes credits_to_bucket entirely.
+# Phase 2's econ_bucket key is dropped from the v2 mid_round_states[] schema.
+# Inline shim retained ONLY so the v1 ETL script remains importable until
+# 03-07 swaps it out — DO NOT call this from new code.
+def credits_to_bucket(credits: int) -> str:
+    if credits >= 20_000:
+        return "full"
+    if credits >= 10_000:
+        return "semi-buy"
+    if credits >= 5_000:
+        return "semi-eco"
+    return "eco"
 
 # --------------------------------------------------------------------------- #
 # Typed shapes                                                                #

@@ -1,15 +1,19 @@
-"""Smoke test that src.pricing.economy.credits_to_bucket is importable
-and exposes the canonical CON-economy-buckets boundaries.
+"""Smoke test that the (deprecated) credits_to_bucket boundaries still match.
 
-VALIDATION.md Wave 0 lists this as a "Phase-3-shareable boundary cases" file.
-Detailed boundary coverage lives in tests/pricing/test_economy.py (Plan 02-01).
+03-02 status: src/pricing/economy.py was DELETED per CLAUDE.md "Economy
+buckets — DEPRECATED in v2". The function `credits_to_bucket` is now an
+inline shim in `tests/calibration/conftest.py` (and `scripts/probe_round_events.py`)
+retained ONLY so the v1 ETL script + v1 calibrator test still parse until
+03-07 rewrites them. This test confirms the inline shim still implements the
+canonical CON-economy-buckets boundaries; it will be deleted alongside the
+calibrator rewrite in 03-07.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from src.pricing.economy import credits_to_bucket
+from tests.calibration.conftest import credits_to_bucket
 
 
 @pytest.mark.parametrize(
