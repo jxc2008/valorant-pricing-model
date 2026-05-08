@@ -59,6 +59,10 @@ EXPECTED_NAMES: tuple[str, ...] = (
     "ARBITER_SCORE_WINDOW_S",
     "EVENT_LOG_DIR",
     "METRICS_LOG_DIR",
+    # Phase 3 — scoreboard poller (REQ-scoreboard-polling / 03-04 / D-09)
+    "SCOREBOARD_POLL_CADENCE_S",
+    "SCOREBOARD_FAILURE_COOLDOWN_S",
+    "SCOREBOARD_MAX_RETRIES",
 )
 
 
@@ -137,6 +141,9 @@ EXPECTED_TYPES: dict[str, type] = {
     "ARBITER_SCORE_WINDOW_S": float,
     "EVENT_LOG_DIR": str,
     "METRICS_LOG_DIR": str,
+    "SCOREBOARD_POLL_CADENCE_S": float,
+    "SCOREBOARD_FAILURE_COOLDOWN_S": float,
+    "SCOREBOARD_MAX_RETRIES": int,
 }
 
 

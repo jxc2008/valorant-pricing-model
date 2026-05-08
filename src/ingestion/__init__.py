@@ -7,6 +7,7 @@ from src.ingestion.events import (
     PendingEvent,
     SourceName,
 )
+from src.ingestion.scoreboard import run_scoreboard_poller
 from src.ingestion.timestamps import TimestampRecord, mono_ns, wall_time
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "SourceName",
     "TimestampRecord",
     "mono_ns",
+    "run_scoreboard_poller",
     "wall_time",
 ]

@@ -306,3 +306,32 @@ fills t_theo_computed / t_quote_sent on a parallel metrics line per D-03.
 
 Source: 03-CONTEXT.md D-03 / SPEC §"Constraints" latency analysis.
 """
+
+# --------------------------------------------------------------------------- #
+# Phase 3 — scoreboard poller (REQ-scoreboard-polling / 03-04 / D-09)         #
+# --------------------------------------------------------------------------- #
+
+SCOREBOARD_POLL_CADENCE_S: Final[float] = 5.0
+"""rib.gg async poller cadence (seconds).
+
+5s = baseline per SPEC §3.2 / REQ-scoreboard-polling. Slowest authoritative
+source — OCR confirms within ARBITER_SCORE_WINDOW_S (2s window) per the
+DEC-006 v2 cross-confirm rule.
+
+Source: 03-CONTEXT.md / 03-04 PLAN. Coupled in code with ARBITER_SCORE_WINDOW_S
+above (no longer a magic number floating across the ingestion layer).
+"""
+
+SCOREBOARD_FAILURE_COOLDOWN_S: Final[float] = 60.0
+"""Cooldown after SCOREBOARD_MAX_RETRIES consecutive failures (seconds).
+
+Salvaged from Phase 2's `_ribgg_cool_off` pattern in
+``scripts/probe_round_events.py``. After this window the consecutive-failure
+counter resets and polling resumes.
+"""
+
+SCOREBOARD_MAX_RETRIES: Final[int] = 5
+"""Tenacity ``stop_after_attempt`` value AND the consecutive-failure cooldown
+trigger. Phase 2 carry-forward (5 attempts has empirically been enough to
+ride out rib.gg Heroku cold-starts and 503/429 spikes during VCT events).
+"""
