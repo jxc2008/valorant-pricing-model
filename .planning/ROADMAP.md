@@ -29,7 +29,7 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
 - [x] **Phase 0: Foundation** — Project structure, tooling, config skeleton (~2 days). (completed 2026-04-27)
 - [ ] **Phase 1: Core pricing engine** — Generalized BO3 DP + Bradley-Terry blend + pistol/anti-eco modeling + canonical `live_theo` (~5–7 days).
 - [x] **Phase 2: Round-event data** — rib.gg/bo3.gg API probe + `round_events` dataset OR OCR-driven labeling OR defer (~3 days API path / ~2 weeks OCR path). (completed 2026-05-01 — Path A: 1000 matches / 42586 rounds / calibrated `models/round_conclusion.json`)
-- [ ] **Phase 3: Live ingestion layer** — `MatchState` engine + scoreboard polling + OCR pipeline + text listeners + cross-source arbiter + latency instrumentation (~7–10 days).
+- [x] **Phase 3: Live ingestion layer** — `MatchState` engine + scoreboard polling + OCR pipeline + text listeners + cross-source arbiter + latency instrumentation (~7–10 days). (completed 2026-05-09 — v2 architecture; 9 plans 03-00..03-08)
 - [ ] **Phase 4: Quoting layer** — `KalshiOrderManager` + mode selector + MM quoter + directional taker + Kelly sizer + kill switches + order reconciliation (~5–7 days).
 - [ ] **Phase 5: Validation** — Unit/property tests + backtest + paper trading + calibration loop (~2–4 weeks, calendar-bound by live events).
 - [ ] **Phase 6: Deployment** — Containerization + cloud VM + deploy pipeline + secrets + logging/alerting + monitoring dashboard (~3–5 days).
@@ -97,7 +97,16 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
   3. OCR pipeline parses three HUD targets only (DEC-024): score banner 250ms, bomb-plant icon 500ms, round-end banner 100ms-during-window. Tesseract-only, CPU-only. **Kill-feed parsing, ult tracking, mid-round economy inference are explicitly out of scope.** When `bomb_planted=True`, a separate post-plant attackers/defenders-alive HUD widget is parsed at 250ms cadence.
   4. `live_theo` dispatches: `bomb_planted=True → post_plant_lookup(att, def, time_bucket, side, map)`; otherwise → side baseline. No general mid-round path. The `models/round_conclusion.json` is rekeyed (Phase 2 dataset filter + recalibration); v1 keys (numerical_diff, econ_bucket) are deleted.
   5. Synthetic E2E gate `tests/ingestion/test_e2e.py` drives ≥30 events through arbiter → MatchState → `live_theo` and asserts: seq_id strictly monotonic; p50 `t_observed → t_state_committed` < 500ms; **bomb-detect → quote-pull p50 < 200ms** (latency-critical); `theo_series` non-degenerate post-plant.
-**Plans**: 11 plans currently exist on commit `6677e5d` — these were written under v1 architecture and need teardown + replan under v2.
+**Plans**: 9 plans
+- [x] 03-00-test-infrastructure-PLAN.md (Wave 1) — RED test scaffolds + dev deps + mypy override
+- [x] 03-01-match-state-v2-migration-PLAN.md (Wave 2)
+- [x] 03-02-round-conclusion-v2-surface-PLAN.md (Wave 3)
+- [x] 03-03-arbiter-and-latency-PLAN.md (Wave 4)
+- [x] 03-04-scoreboard-poller-PLAN.md (Wave 4)
+- [x] 03-05-ocr-pipeline-PLAN.md (Wave 4)
+- [x] 03-06-text-listener-PLAN.md (Wave 4)
+- [x] 03-07-etl-rerun-and-calibration-PLAN.md (Wave 5)
+- [x] 03-08-e2e-gate-PLAN.md (Wave 6)
 **See**: `roadmap.md` §3 (v2: 3.1 state engine / 3.2 scoreboard / 3.3 OCR-3-targets / 3.4 text / 3.5 arbiter-3-deques / 3.6 round-conclusion-rekey / 3.7 instrumentation / 3.8 E2E gate)
 
 ### Phase 4: Quoting layer (RESCOPED v2)
@@ -163,7 +172,7 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
 | 0. Foundation | 3/3 | Complete    | 2026-04-27 |
 | 1. Core pricing engine | 7/7 | Complete    | 2026-04-30 |
 | 2. Round-event data | 5/5 | Complete    | 2026-05-01 |
-| 3. Live ingestion layer | 8/9 | In Progress|  |
+| 3. Live ingestion layer | 9/9 | Complete    | 2026-05-09 |
 | 4. Quoting layer | 0/0 | Not started | — |
 | 5. Validation | 0/0 | Not started | — |
 | 6. Deployment | 0/0 | Not started | — |
@@ -193,5 +202,4 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
 
 **Surfaced:** 2026-05-06 during Phase 03 discussion. Phase 7.2 drift detection (alert-only) is the only existing mitigation; covers catastrophic drift but not normal-cadence refresh during a season. Related gaps not in scope of this item: no within-event recency weighting (early-stage games count same as recent), no patch-version awareness, no roster-change awareness.
 
-**Plans:**
-7/9 plans executed
+**Plans:** TBD (backlog — not yet broken down).

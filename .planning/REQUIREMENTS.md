@@ -97,11 +97,12 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
   - `vega_post_plant` = variance over post-plant outcomes {kill, defuse, time-out}. **TBD formula** — picked + calibrated in Phase 4 against observed post-plant theo updates.
 - **Acceptance:** Phase 1 ships `vega_between_round`. `vega_post_plant` ships in Phase 4. The single `VEGA_DIRECTIONAL_THRESHOLD` constant from v1 is REMOVED — DIRECTIONAL_TAKE triggers on `|theo − market_mid|`, not on vega magnitude.
 
-### REQ-end-to-end-latency
+### REQ-end-to-end-latency — **Synthetic harness Complete (2026-05-09, plan 03-08); production gate Phase 5**
 - **Source:** prd.md §2
 - **Scope:** latency budget
 - **Description:** End-to-end latency from observable in-game event → updated theo must be < 500 ms (median). Quote-cancel must be < 100 ms from state change → all stale orders pulled.
 - **Acceptance:** latency p50/p99 measured per REQ-latency-instrumentation; reported per Phase 5 paper-trading run.
+- **Implementation:** plan 03-08 — `tests/ingestion/test_e2e.py` ships 3 GREEN E2E tests covering SPEC §6 acceptance via the synthetic harness composing Arbiter + LiveTheoEngine through 30+ events end-to-end (PendingEvent injection, no real I/O — real I/O lives in per-source unit tests). `test_e2e_latency_p50` asserts seq_id strictly monotonic + 6-stage timestamps populated on every commit + p50 t_ingested → t_state_committed < 500ms. `test_bomb_detect_p50` asserts bomb_plant p50 < 100ms (Phase 3's piece of PRD's 200ms bomb-detect → quote-pull budget; Phase 4 owns the remaining 100ms quote-cancel). `test_post_plant_non_degenerate` asserts |theo_bomb - theo_baseline| ≥ 1¢ on (3, 2, 0, atk, Lotus) cell with asymmetric HalfRates (delta=0.0155 measured). Synthetic harness latency math is structurally trivial (sub-ms) per RESEARCH Pitfall 3 — the test verifies the INSTRUMENTATION captures the right numbers; real-broadcast production gate is Phase 5 paper-trade.
 
 ---
 

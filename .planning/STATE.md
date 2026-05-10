@@ -2,25 +2,25 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 03
-current_plan: 8 of 9
-status: in_progress
-stopped_at: Completed 03-07-etl-rerun-and-calibration-PLAN.md
-last_updated: "2026-05-10T02:55:00Z"
-last_activity: 2026-05-10
+current_phase: "04"
+current_plan: 0 (no plans yet — phase needs /gsd-spec-phase or /gsd-discuss-phase to begin)
+status: planning
+stopped_at: Phase 03 complete (live ingestion layer shipped)
+last_updated: "2026-05-09T23:10:00Z"
+last_activity: 2026-05-09
 progress:
   total_phases: 9
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 24
-  completed_plans: 23
-  percent: 96
+  completed_plans: 24
+  percent: 100
 ---
 
 # STATE — Valorant Live Pricing Model
 
 **Project:** Valorant Live Pricing Model
-**Last activity:** 2026-05-10
-**Last activity description:** Phase 03 Plan 07 complete — ETL re-run + v2 calibration (REQ-round-conclusion-lookup calibration arm, 03-CONTEXT D-07/D-08/D-09/D-10): scripts/probe_round_events_v2.py augments Phase 2 ETL with a_alive/b_alive persisted (D-07) + requests-cache filesystem backend at data/ribgg_cache (D-08) + per-match SAVEPOINT transactions with resume-by-DISTINCT match_id (D-09); scripts/calibrate_round_conclusion_v2.py top-down Bayesian shrinkage walk over the 4 v2 cell tiers (cells_minimal/cells_no_map/cells_no_time/cells_full keyed on (att, def_, time_bucket, side, map) per D-04). Atomic-replaced models/round_conclusion.json with 5736 cells_full / 854 cells_no_time / 72 cells_no_map / 36 cells_minimal / side_baseline {atk: 0.5299, def: 0.4701} from 24500 bomb-planted samples across 1000 logical match_ids / 42370 perspective-doubled rounds. ETL wall-clock: ~6h cold cache (398 MB ribgg_cache); recalibration <1 min on warm cache. LiveTheoEngine smoke verifies dispatch is structurally active (lopsided 5v1 +1.18¢; 1v5 -2.93¢); the 03-08 E2E gate uses asymmetric states with stronger signal. 294 passed / 25 xfailed (up 7 GREEN, -7 xfails as v1 calibrator + v1 synthesize_states tests collapse to permanent xfails). 9 GREEN v2 calibrator tests; mypy strict + ruff clean.
+**Last activity:** 2026-05-09
+**Last activity description:** Phase 03 complete — Wave 6 (Plan 03-08 E2E gate) shipped after Waves 0-5 fully GREEN; full ingestion stack live (MatchState v2 + arbiter + scoreboard + OCR + text listener + post-plant calibration). Synthetic E2E harness at tests/ingestion/test_e2e.py composes Arbiter + LiveTheoEngine through 30+ events end-to-end: seq_id strictly monotonic, 6-stage timestamps populated on every commit, p50 t_ingested → t_state_committed sub-millisecond (synthetic harness — production gate is Phase 5 paper-trade per RESEARCH Pitfall 3), bomb_plant p50 sub-millisecond, post-plant theo shift ≥ 1¢ on the (3, 2, 0, atk, Lotus) synthetic cell with asymmetric HalfRates (delta=0.0155). 297 passed / 22 xfailed (+3 GREEN; mypy strict + ruff clean). REQ-end-to-end-latency GREEN; SPEC §6 acceptance #6 satisfied. Phase 4 (quoting layer) unblocked.
 
 ---
 
@@ -28,26 +28,26 @@ progress:
 
 - **Core value:** Live pricing engine for Valorant BO3 series + per-map Kalshi markets. Re-prices the series at any moment during a live match, hybrid market-maker / directional taker, fast enough to capture edge or — at minimum — avoid being adversely selected.
 - **Owner:** jxc2008@nyu.edu
-- **Status:** Phases 0/1/2 complete. Phase 3 (live ingestion) in progress — Plans 00/01/02/03/04/05/06/07 done; 1 plan remaining (03-08 E2E gate).
+- **Status:** Phases 0/1/2/3 complete. Phase 4 (quoting layer) unstarted — needs spec/discuss → plan → execute.
 - **Source-of-truth design docs:** `prd.md`, `roadmap.md`, `CLAUDE.md` at repo root.
 - **Locked decisions:** 22 (DEC-001 through DEC-022) — see `.planning/PROJECT.md` `<decisions>` blocks.
 
 ## Current Position
 
-Phase: 03 (live-ingestion-layer) — IN PROGRESS
-Plan: 8 of 9 done (03-00 test infrastructure, 03-01 match-state-v2-migration, 03-02 round-conclusion-v2-surface, 03-03 arbiter-and-latency, 03-04 scoreboard-poller, 03-05 ocr-pipeline, 03-06 text-listener, 03-07 etl-rerun-and-calibration)
+Phase: 04 (quoting-layer) — PLANNING (no plans yet)
+Plan: 0 of TBD
 
-- **Current phase:** 03
-- **Current plan:** 8 of 9
-- **Status:** In progress; next plan is 03-08-e2e-gate
-- **Progress:** [██████████] 96%
+- **Current phase:** 04
+- **Current plan:** 0 of TBD (no plans yet — phase needs /gsd-spec-phase or /gsd-discuss-phase to begin)
+- **Status:** planning
+- **Progress:** [██████████] 100% (Phases 0-3 complete; Phase 4+ unstarted)
 
 ```
 Phase 0  [##########] Complete (3/3 plans)
 Phase 1  [##########] Complete (7/7 plans)
 Phase 2  [##########] Complete (5/5 plans)
-Phase 3  [████████░░] In progress (8/9 plans)
-Phase 4  [          ] Pending
+Phase 3  [##########] Complete (9/9 plans)
+Phase 4  [          ] Planning
 Phase 5  [          ] Pending
 Phase 6  [          ] Pending
 Phase 7  [          ] Pending
@@ -60,8 +60,8 @@ Phase 7  [          ] Pending
 | 0 — Foundation | Complete (2026-04-27) | 3 (00-01, 00-02, 00-03) | 3 |
 | 1 — Core pricing engine | Complete | 7 (01-01..01-07) | 7 |
 | 2 — Round-event data | Complete (2026-05-01) | 5 (02-01..02-05) | 5 |
-| 3 — Live ingestion layer | In progress | 9 (03-00..03-08) | 8 |
-| 4 — Quoting layer | Pending | none | — |
+| 3 — Live ingestion layer | Complete (2026-05-09) | 9 (03-00..03-08) | 9 |
+| 4 — Quoting layer | Planning | none | — |
 | 5 — Validation | Pending | none | — |
 | 6 — Deployment | Pending | none | — |
 | 7 — Operational maturity | Pending | none | — |
@@ -84,6 +84,7 @@ Phase 7  [          ] Pending
 | Phase 03 P05 | 10 min, 4 tasks, 11 files | Tesseract OCR pipeline (4 async workers + FrameSource Protocol + 9 constants + dump_roi_overlay.py operator helper) GREEN; 284 passed / 19 xfailed (GREEN'd 6 OCR tests; round-end-banner placeholder x2 xfailed for Phase 3.5 fixture) |
 | Phase 03 P06 | 8 min, 2 tasks, 5 files | Twitter v2 text listener (REQ-text-listener / D-07): tweepy.asynchronous.AsyncStreamingClient subclass + score-signal regex + degrade-to-no-op env gate + soft-confirm-only contract via arbiter.score_changes (>=2-source rule blocks Twitter-alone commits); 9-rule TWITTER_RULE_SET. 287 passed / 26 xfailed (3 GREEN, up from 284/29). |
 | Phase 03 P07 | ~6h 45m wall-clock (~70 min active code; ~5h 35m blocking on rib.gg scrape), 3 tasks, 13 files | ETL re-run + v2 calibration (REQ-round-conclusion-lookup, D-07/D-08/D-09/D-10): scripts/probe_round_events_v2.py augments Phase 2 ETL with a_alive/b_alive persisted + requests-cache filesystem backend + per-match SAVEPOINT transactions; scripts/calibrate_round_conclusion_v2.py top-down Bayesian shrinkage walk. Atomic-replaced models/round_conclusion.json (806 KB) with 5736/854/72/36 cells across 4 tiers from 24500 bomb-planted samples / 1000 logical match_ids / 42370 perspective-doubled rounds. side_baseline {atk: 0.5299, def: 0.4701} converges within 0.005 of Phase 2 v1. 294 passed / 25 xfailed (+7 GREEN; v1 calibrator + v1 synthesize_states tests collapse to permanent xfails). |
+| Phase 03 P08 | ~10 min, 2 tasks, 3 files | Synthetic E2E gate (REQ-end-to-end-latency / SPEC §6 acceptance): tests/ingestion/test_e2e.py composes Arbiter + LiveTheoEngine through 30+ events end-to-end via PendingEvent injection (no real network / OCR / tweepy). 3 GREEN tests: test_e2e_latency_p50 (seq_id strictly monotonic + 6-stage timestamps populated + p50 t_ingested → t_state_committed < 500ms over 30 score_change events), test_bomb_detect_p50 (bomb_plant p50 < 100ms over 30 events; Phase 3's 100ms piece of PRD's 200ms bomb-detect → quote-pull budget), test_post_plant_non_degenerate (post-plant theo shift |theo_bomb - theo_baseline| ≥ 1¢ on injected synthetic cell at (3, 2, 0, atk, Lotus); measured delta=0.0155 with TeamA-at-0.55 asymmetric HalfRates breaking DP symmetry). Synthetic harness latency math is structurally trivial (sub-ms) per RESEARCH Pitfall 3 — the test verifies the INSTRUMENTATION captures the right numbers; production gate is Phase 5 paper-trade. 297 passed / 22 xfailed (+3 GREEN); mypy strict + ruff clean. |
 
 ## Accumulated Context
 
@@ -148,6 +149,16 @@ Phase 7  [          ] Pending
 - **Calibrated artifact shipped.** `models/round_conclusion.json` (324 KB) — 22/44/524/1886 cells in the 5-tier fallback chain. `side_baseline = {atk: 0.5256, def: 0.4751}`. Phase 1's flat-0.5 stub replaced.
 - **Live engine smoke verified.** `live_theo(state)` consuming the calibrated lookup produces non-degenerate predictions.
 
+### Phase 03 outcomes (2026-05-09)
+
+- **MatchState v2 migrated to src/state/match_state.py** (19 fields; cut numerical_diff/side/econ_bucket; added attackers_alive/defenders_alive/time_left_s/seq_id/last_updated_ts). Pure `with_update` mutator + module-level `commit()`/`quarantine()` helpers; single-writer invariant documented at module-docstring level. JSONL replay determinism over 1000 random commits.
+- **RoundConclusionLookup v2 surface** (`between_round_p` + `post_plant_p`, 5-tier hierarchy, `schema_version=2` `from_json` gate). `live_theo` dispatches on `state.bomb_planted` (D-05): bomb_planted=True overrides current-round p with `post_plant_p(att, def, time_bucket, side, map)`, future-round transitions ALWAYS use between-round semantics. `src/pricing/economy.py` deleted per CLAUDE.md v2 deprecation.
+- **Cross-source arbiter shipped** (3 deques per DEC-006 v2: score_changes, bomb_events, round_end_events; kill_events / numerical_flips NOT created). Score ≥2 sources/2s; bomb 1 OCR source soft-commit; round-end 1 OCR source soft-commit. Sole writer of MatchState; sole appender of event_log + metrics JSONL.
+- **Six-stage timestamp lineage on every confirmed event** (data/metrics/{match_id}.metrics.jsonl). `t_observed` (wall_time, source) → `t_ingested` (mono_ns, source) → `t_arbited` (mono_ns, arbiter) → `t_state_committed` (mono_ns, src.state.commit) → `t_theo_computed` (Phase 4) → `t_quote_sent` (Phase 4).
+- **Async rib.gg poller, tesseract OCR (4 workers), Twitter v2 listener (degrade-to-no-op) all in place.** Twitter never sole-sources score commits because >=2-source rule blocks Twitter-alone commits; tweepy.asynchronous.AsyncStreamingClient subclass + score-signal regex + degrade-to-no-op env gate.
+- **Phase 2 ETL re-run with a_alive/b_alive persisted**; ~1000 series re-fetched into data/round_events_v2.sqlite (398 MB ribgg_cache, 24500 bomb-planted samples); cells calibrated into models/round_conclusion.json schema_version=2 (5736 cells_full / 854 cells_no_time / 72 cells_no_map / 36 cells_minimal; side_baseline {atk: 0.5299, def: 0.4701}).
+- **Synthetic E2E gate at tests/ingestion/test_e2e.py:** seq_id monotonic, 6 timestamps populated, p50 < 500ms general / < 100ms bomb-detect (synthetic harness — production gate is Phase 5 paper-trade per RESEARCH Pitfall 3), post-plant theo shift ≥ 1¢ on the injected synthetic cell (delta=0.0155 with asymmetric HalfRates breaking DP symmetry; (3, 2, 0, atk, Lotus) was sparse in calibrated data so test_post_plant_non_degenerate uses _make_engine fallback inject — informs Phase 5 calibration prioritization for low-time-bucket cells).
+
 ### Active todos
 
 None.
@@ -165,7 +176,7 @@ None.
 
 ## Session Continuity
 
-- **Last session ended:** 2026-05-10 — Phase 03 Plan 07 (etl-rerun-and-calibration) shipped. Commits: `2e885f0` (Task 1: feat — scripts/probe_round_events_v2.py, augmented Phase 2 ETL with a_alive/b_alive persisted + cache + SAVEPOINT transactions) → `1175bbe` (Task 2: feat — scripts/calibrate_round_conclusion_v2.py + 9 GREEN test_calibrate_round_conclusion_v2.py tests) → `5835eef` (Task 3: data — rebuild data/round_events_v2.sqlite + atomic-replace models/round_conclusion.json with REAL 24.5k-sample v2 calibrated artifact). ETL wall-clock: ~6h cold cache; recalibration <1 min on warm cache.
-- **Stopped at:** Completed 03-07-etl-rerun-and-calibration-PLAN.md
-- **Next action:** Plan 03-08 (e2e-gate). The synthetic E2E harness in tests/ingestion/test_e2e.py consumes models/round_conclusion.json via LiveTheoEngine — the 5736-cell calibrated artifact replaces the 1-cell synthetic from 03-02; the test_post_plant_non_degenerate gate at SPEC §6 acceptance has real cells to assert against. The ≥1¢ post-plant theo shift is structurally satisfiable on lopsided cells (5v1, 1v5) per the 03-07 SUMMARY smoke. Wave 4 closes Phase 3.
-- **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs. Constraint detail in `.planning/intel/constraints.md`. Phase 3 implementation decisions in `.planning/phases/03-live-ingestion-layer/03-CONTEXT.md` (D-01 through D-14).
+- **Last session ended:** 2026-05-09 — Phase 03 Plan 08 (e2e-gate) shipped, closing out Phase 3. Commit: `91191bb` (Task 1: test — tests/ingestion/test_e2e.py, 3 GREEN E2E tests covering REQ-end-to-end-latency / SPEC §6 acceptance) + Task 2 metadata commit (this STATE.md + ROADMAP.md update + 03-08 SUMMARY.md). Phase 3 complete: 9 plans / 9 SUMMARYs / full ingestion stack live (MatchState v2 + arbiter + scoreboard + OCR + text listener + post-plant calibration + E2E gate).
+- **Stopped at:** Phase 03 complete (live ingestion layer shipped)
+- **Next action:** Phase 04 (quoting layer) needs spec/discuss → plan → execute. Per roadmap.md §4 (rescoped v2), the phase covers KalshiOrderManager + three-way mode selector + MM_BETWEEN_ROUND/DIRECTIONAL_TAKE/POST_PLANT_QUOTE/IDLE + portfolio-aware Kelly (per-market + per-series aggregate cap) + four kill switches (Kalshi API errors / ingestion staleness > 5s / |theo − market| > 20¢ / rolling Brier > 0.30 over 50 rounds) + order reconciliation. Phase 4 is unblocked by Phase 3's MatchState + arbiter + post-plant lookup. Recommended next command: `/gsd-spec-phase 04`.
+- **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs. Constraint detail in `.planning/intel/constraints.md`. Phase 3 implementation decisions in `.planning/phases/03-live-ingestion-layer/03-CONTEXT.md` (D-01 through D-14). Phase 4 will start a new CONTEXT/SPEC cycle.
