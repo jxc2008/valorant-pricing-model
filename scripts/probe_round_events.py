@@ -1,30 +1,38 @@
-"""Phase 2 Wave 2: scrape rib.gg round events into data/round_events.sqlite.
+"""DEPRECATED — Phase 2 v1 rib.gg ETL. Superseded by ``probe_round_events_v2.py``.
 
-Path A — DEC-017 / D-01..D-09. Per 02-RESEARCH.md Summary (in-session live probe of
-be-prod.rib.gg 2026-04-30), the 4-source ladder collapses to a single Python source.
-Sources 2-4 (valorantr / FlynV / bo3.gg) are documented in 02-PROBE-LOG.md as
-"considered, rejected" — see Reasons table.
+This script wrote ``data/round_events.sqlite`` with the v1 ``mid_round_states[]``
+schema keyed on ``(numerical_diff, bomb_planted, side, econ_bucket, map)`` —
+a layout that is no longer compatible with ``models/round_conclusion.json``
+schema_version=2 (see 03-CONTEXT.md D-04 / D-06 / D-07). Per Phase 3 03-07
+("REQ-round-conclusion-lookup calibration arm rekey"):
 
-Public API (consumed by tests/calibration/ via importorskip in Wave 0):
-    create_round_events_schema(conn)      — install the 8-column CON-round-events-schema
-    side_for_team_a(round_num, ...)       — Pitfall 3 round-13 half-flip
-    synthesize_mid_round_states(...)      — D-06 hybrid event+heartbeat list (W7: t=0 pre-emit)
-    transform_match_to_rows(...)          — yields TWO rows per round (BLOCKER 4 perspective sym)
-    list_tier1_events(...)                — VCT filter (W10 test pins this)
-    get_json(url)                          — tenacity-wrapped requests.get with W6 Retry-After
+  - The v2 ETL is ``scripts/probe_round_events_v2.py``: persists ``a_alive`` /
+    ``b_alive`` per state (D-07), wraps ``requests-cache`` filesystem backend
+    (D-08), commits per-series via SAVEPOINT transactions (D-09), and writes
+    to ``data/round_events_v2.sqlite``.
+  - The v2 calibrator is ``scripts/calibrate_round_conclusion_v2.py``: filters
+    to ``bomb_planted=True`` states only and keys cells on
+    ``(att, def_, time_bucket, side, map)``.
 
-CLI:
-    python -m scripts.probe_round_events --dry-run                  # 5-series sample, no DB write
-    python -m scripts.probe_round_events --live --out-db data/round_events.sqlite
-    python -m scripts.probe_round_events --live --target 500        # quick floor
+This file is RETAINED for forensic recovery of the original Phase 2 pipeline
+shape. **Do NOT run it** — its output schema cannot be loaded into the v2
+``RoundConclusionLookup`` (``from_json`` HARD-FAILS on missing schema_version).
+See ``models/round_conclusion.json`` schema_version: 2 +
+``scripts/calibrate_round_conclusion_v2.py`` for the production pipeline.
+
+The ``credits_to_bucket`` shim added in 03-02 (when ``src/pricing/economy.py``
+was deleted per CLAUDE.md "Economy buckets — DEPRECATED in v2") is REMOVED in
+03-07. Calling any econ-bucket-touching function in this module now raises
+``NameError`` — that's the contract: this script is forensically readable, not
+runnable.
 
 Sources
 -------
 - 02-RESEARCH.md §"Pattern 1" / §"Pattern 2" / §"Code Examples"
 - 02-CONTEXT.md D-01..D-09
+- 03-CONTEXT.md D-04 (v2 cell key) / D-06 (schema_version) / D-07 (a_alive/b_alive)
 - CON-round-events-schema (constraints.md)
 - src/config/constants.py (RIBGG_*, MID_ROUND_HEARTBEAT_S)
-- credits_to_bucket inline shim (TODO 03-07 — src/pricing/economy.py was DELETED in 03-02)
 - CRule 12 (no magic numbers); CRule 13 (dry-run by default)
 - BLOCKER 4 (revision feedback): perspective-symmetric row doubling
 - W6 (revision feedback): Retry-After header honoring
@@ -58,19 +66,13 @@ from src.config.constants import (
     RIBGG_TIER_FILTER,
 )
 
+# 03-07: ``credits_to_bucket`` shim REMOVED. The v1 ETL is no longer expected
+# to run — calling ``synthesize_mid_round_states`` will now raise NameError
+# at the ``credits_to_bucket(econ_a_total)`` line (intentional). Forensic
+# readers should consult ``scripts/probe_round_events_v2.py`` for the active
+# pipeline; the v1 pipeline's economy-bucket dimension is cut from the v2
+# round_conclusion schema (D-04, CLAUDE.md "Economy buckets — DEPRECATED in v2").
 
-# TODO(03-07): the v2 ETL re-run rewrite removes credits_to_bucket entirely.
-# Phase 2's econ_bucket key is dropped from the v2 mid_round_states[] schema.
-# Inline shim retained ONLY so the v1 ETL script remains importable until
-# 03-07 swaps it out — DO NOT call this from new code.
-def credits_to_bucket(credits: int) -> str:
-    if credits >= 20_000:
-        return "full"
-    if credits >= 10_000:
-        return "semi-buy"
-    if credits >= 5_000:
-        return "semi-eco"
-    return "eco"
 
 # --------------------------------------------------------------------------- #
 # Typed shapes                                                                #
@@ -287,7 +289,11 @@ def synthesize_mid_round_states(
     # perspective only; the BLOCKER 4 row-doubling in transform_match_to_rows
     # handles team B's perspective in a separate row.
     econ_a_total = sum(round_loadouts.get(pid, 0) for pid in round_team_a_players)
-    econ_a_bucket = credits_to_bucket(econ_a_total)
+    # 03-07 deprecation: ``credits_to_bucket`` was deleted at the top of this
+    # module; calling this v1 ETL synthesizer raises NameError at runtime —
+    # forensic-readable only. See ``probe_round_events_v2.py`` for the active
+    # pipeline. The trailing pragma below silences ruff's static check.
+    econ_a_bucket = credits_to_bucket(econ_a_total)  # noqa: F821
 
     heartbeat_period_ms = int(MID_ROUND_HEARTBEAT_S * 1000)
 

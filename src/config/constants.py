@@ -273,6 +273,22 @@ Atomic-replace target. `RoundConclusionLookup.from_json(path)` HARD-FAILS on
 schema_version != 2; v1 file recoverable via git history.
 """
 
+RIBGG_CACHE_DIR: Final[str] = "data/ribgg_cache"
+"""requests-cache filesystem backend directory (D-08). Per-URL+params SHA
+JSON files; gitignored per `.gitignore` (data/ribgg_cache/). Phase 3 ETL re-run
+uses this so future re-runs are near-instant on cache hits (~5GB on disk for
+1000 series cold cache; near-zero subsequent re-runs).
+
+Source: 03-CONTEXT.md D-08 / 03-RESEARCH.md §"Pattern 6"."""
+
+ROUND_EVENTS_V2_DB_PATH: Final[str] = "data/round_events_v2.sqlite"
+"""Phase 3 v2 ETL output (D-07). NEW SQLite — v1 db at data/round_events.sqlite
+retained on disk for forensic value. v2 schema persists a_alive/b_alive in
+mid_round_states[] JSON blob (cells_full / time_bucket calibration needs RAW
+counts, not derived numerical_diff).
+
+Source: 03-CONTEXT.md D-07 / 03-RESEARCH.md §"Architecture Patterns"."""
+
 # --------------------------------------------------------------------------- #
 # Phase 3 — ingestion arbiter + event logs (DEC-006 v2 / D-03)               #
 # --------------------------------------------------------------------------- #

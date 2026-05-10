@@ -1,7 +1,12 @@
 """RED tests for scripts.probe_round_events.synthesize_mid_round_states.
 
-These tests SKIP until Plan 02-03 ships scripts/probe_round_events.py. When it
-ships, they activate automatically and pin the D-06 / D-08 / Pitfall 4 contract.
+03-07 status: every test in this file is xfailed. The v1 ETL module
+(``scripts/probe_round_events``) is permanently deprecated per its module
+docstring; ``credits_to_bucket`` is no longer importable, so the v1
+synthesizer raises ``NameError`` at runtime. The v2 synthesizer
+(``scripts.probe_round_events_v2.synthesize_mid_round_states_v2``) carries the
+D-06 / D-08 / Pitfall 4 contract forward — see
+``scripts/probe_round_events_v2.py`` for the production pipeline.
 
 Sources
 -------
@@ -10,6 +15,7 @@ Sources
 - D-08 (carry-forward numerical_diff between events)
 - Pitfall 4 (defuse → bomb_planted=False, terminate states)
 - src/config/constants.MID_ROUND_HEARTBEAT_S = 5.0 (Plan 02-01)
+- 03-07 PLAN: v1 ``credits_to_bucket`` shim deletion contract
 """
 
 from __future__ import annotations
@@ -19,6 +25,17 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+pytestmark = pytest.mark.xfail(
+    reason=(
+        "03-07 — v1 synthesize_mid_round_states is forensic-only after "
+        "credits_to_bucket shim deletion; v2 synthesizer at "
+        "scripts.probe_round_events_v2.synthesize_mid_round_states_v2 carries "
+        "D-06 / D-08 / Pitfall 4 forward."
+    ),
+    raises=NameError,
+    strict=False,
+)
 
 # Skip-gate: until Plan 02-03 ships the module these tests SKIP cleanly.
 synth_mod = pytest.importorskip(

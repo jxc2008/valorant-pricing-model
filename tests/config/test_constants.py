@@ -54,6 +54,9 @@ EXPECTED_NAMES: tuple[str, ...] = (
     "POST_PLANT_TIMER_S",
     "TIME_BUCKET_WIDTH_S",
     "ROUND_CONCLUSION_JSON_PATH",
+    # Phase 3 — ETL re-run (D-07 / D-08 / 03-07 PLAN)
+    "RIBGG_CACHE_DIR",
+    "ROUND_EVENTS_V2_DB_PATH",
     # Phase 3 — ingestion arbiter + event logs (DEC-006 v2 / D-03)
     "ARBITER_TICK_HZ",
     "ARBITER_SCORE_WINDOW_S",
@@ -155,6 +158,8 @@ EXPECTED_TYPES: dict[str, type] = {
     "POST_PLANT_TIMER_S": float,
     "TIME_BUCKET_WIDTH_S": float,
     "ROUND_CONCLUSION_JSON_PATH": str,
+    "RIBGG_CACHE_DIR": str,
+    "ROUND_EVENTS_V2_DB_PATH": str,
     "ARBITER_TICK_HZ": int,
     "ARBITER_SCORE_WINDOW_S": float,
     "EVENT_LOG_DIR": str,
@@ -327,3 +332,13 @@ def test_time_bucket_width_is_5_seconds() -> None:
 def test_round_conclusion_json_path_default() -> None:
     """D-06: canonical disk path for the v2 calibrated lookup."""
     assert constants.ROUND_CONCLUSION_JSON_PATH == "models/round_conclusion.json"
+
+
+def test_ribgg_cache_dir_default() -> None:
+    """D-08: requests-cache filesystem backend directory (gitignored)."""
+    assert constants.RIBGG_CACHE_DIR == "data/ribgg_cache"
+
+
+def test_round_events_v2_db_path_default() -> None:
+    """D-07: NEW v2 SQLite path; v1 path retained on disk for forensics."""
+    assert constants.ROUND_EVENTS_V2_DB_PATH == "data/round_events_v2.sqlite"

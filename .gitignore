@@ -72,12 +72,20 @@ data/round_events.sqlite
 scripts/_probe_live.log
 scripts/_probe_live.err
 
-# Phase 3 generated artifacts (large; per-machine)
-data/ribgg_cache/
-data/event_log/
-data/metrics/
+# Phase 3 generated artifacts (large; per-machine).
+# Use file-globs (not bare directory paths) so .gitkeep markers below remain
+# tracked — Git can re-include unignored files only when the parent directory
+# is itself unignored. See git-scm "Two consequences" caveat under PATTERN FORMAT.
+data/ribgg_cache/*
+data/event_log/*
+data/metrics/*
 data/round_events_v2*
-data/round_events_v2.sqlite
+
+# .gitkeep markers for the otherwise-gitignored Phase 3 artifact directories,
+# so the directory layout is reproducible on a fresh clone (03-07 D-08).
+!data/ribgg_cache/.gitkeep
+!data/event_log/.gitkeep
+!data/metrics/.gitkeep
 
 # Autonomous-loop scratch output (operator harness; per-machine)
 .claude-loop-output.tmp
