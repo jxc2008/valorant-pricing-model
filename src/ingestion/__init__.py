@@ -15,6 +15,7 @@ from src.ingestion.ocr import (
     run_score_banner_worker,
 )
 from src.ingestion.scoreboard import run_scoreboard_poller
+from src.ingestion.text_listener import run_text_listener
 from src.ingestion.timestamps import TimestampRecord, mono_ns, wall_time
 
 __all__ = [
@@ -33,5 +34,6 @@ __all__ = [
     "run_round_end_worker",
     "run_score_banner_worker",
     "run_scoreboard_poller",
+    "run_text_listener",
     "wall_time",
 ]

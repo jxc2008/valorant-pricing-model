@@ -78,6 +78,9 @@ EXPECTED_NAMES: tuple[str, ...] = (
     "POST_PLANT_DEFENDERS_ROI",
     "TESS_CONFIG_DIGIT_SINGLE",
     "TESS_CONFIG_DIGIT_MULTI",
+    # Phase 3 — text listener (REQ-text-listener / 03-06 / D-07)
+    "TWITTER_API_BASE_URL",
+    "TWITTER_RULE_SET",
 )
 
 
@@ -173,6 +176,8 @@ EXPECTED_TYPES: dict[str, type] = {
     "POST_PLANT_DEFENDERS_ROI": tuple,
     "TESS_CONFIG_DIGIT_SINGLE": str,
     "TESS_CONFIG_DIGIT_MULTI": str,
+    "TWITTER_API_BASE_URL": str,
+    "TWITTER_RULE_SET": tuple,
 }
 
 

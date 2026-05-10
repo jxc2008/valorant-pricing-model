@@ -433,3 +433,42 @@ TESS_CONFIG_DIGIT_MULTI: Final[str] = "--psm 7 --oem 3 -c tessedit_char_whitelis
 
 PSM 7 = single line of text mode; needed for score banner where 2-digit values
 (10, 11, 12, 13) appear after pistol-rich first halves."""
+
+# --------------------------------------------------------------------------- #
+# Phase 3 — text listener (REQ-text-listener / 03-06 / 03-CONTEXT D-07)       #
+# --------------------------------------------------------------------------- #
+
+TWITTER_API_BASE_URL: Final[str] = "https://api.twitter.com/2"
+"""Twitter API v2 base URL.
+
+Used by tweepy.asynchronous.AsyncStreamingClient under the hood; declared here
+only as a module-init sanity anchor and as the canonical reference for any
+future direct-aiohttp fallback path. Not used directly in production code.
+
+Source: 03-CONTEXT.md D-07 / 03-RESEARCH.md §"Constants to Add" / 03-06 PLAN.
+"""
+
+TWITTER_RULE_SET: Final[tuple[str, ...]] = (
+    "#VCT",
+    "#VALORANTChampions",
+    "#VCTAmericas",
+    "#VCTEMEA",
+    "#VCTPacific",
+    # Operator-pinned 2026-season caster/league/team-org accounts.
+    # CONTEXT D-07 carry-forward; researcher-pinned per RESEARCH §"Code Examples".
+    "from:ValorantEsports",
+    "from:VCT_Americas",
+    "from:VCT_EMEA",
+    "from:VCT_Pacific",
+)
+"""Static rule set for tweepy.asynchronous.AsyncStreamingClient filter (REQ-text-listener).
+
+Twitter API v2 streaming rules — added once at listener init via add_rules.
+Operator can extend by editing this tuple + redeploying. Per-match dynamic
+rule sync is deferred (CONTEXT 'Deferred Ideas' / RESEARCH §"Open Questions").
+
+PERMANENT DEGRADATION (RESEARCH Pitfall 1):
+- Twitter API Basic tier ($200/mo) was deprecated 2026-02-06 for new accounts.
+- Default deployments without TWITTER_BEARER_TOKEN env var degrade to no-op;
+  the arbiter still satisfies its >=2-source rule via rib.gg + OCR.
+"""
