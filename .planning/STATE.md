@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 03
-current_plan: 6 of 9
+current_plan: 7 of 9
 status: in_progress
-stopped_at: Completed 03-05-ocr-pipeline-PLAN.md
-last_updated: "2026-05-08T20:00:00Z"
-last_activity: 2026-05-08
+stopped_at: Completed 03-06-text-listener-PLAN.md
+last_updated: "2026-05-10T01:58:00Z"
+last_activity: 2026-05-10
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 24
-  completed_plans: 21
-  percent: 88
+  completed_plans: 22
+  percent: 92
 ---
 
 # STATE — Valorant Live Pricing Model
 
 **Project:** Valorant Live Pricing Model
-**Last activity:** 2026-05-08
-**Last activity description:** Phase 03 Plan 05 complete — Tesseract OCR pipeline (REQ-ocr-pipeline / DEC-024 v2 / D-11/D-12/D-13/D-14): 4 async cadence workers (run_score_banner_worker @250ms / run_bomb_icon_worker @500ms / run_round_end_worker @100ms / run_post_plant_alive_worker @250ms with D-12 hard-gate on bomb_planted=True) + 4 sync decode helpers + shared ThreadPoolExecutor(max_workers=2) per RESEARCH §Pattern 4; FrameSource Protocol + StubFrameSource for tests + YouTubeFrameSource skeleton (TODO(phase-4)); 9 new constants with TODO(operator) ROI placeholders + scripts/dump_roi_overlay.py operator helper. Grep guard PASSES; mypy + ruff clean. 284 passed / 19 xfailed (down from 33; GREEN'd 6 OCR tests, kept 2 round-end xfails for Phase 3.5 fixture); 10 min wall-clock.
+**Last activity:** 2026-05-10
+**Last activity description:** Phase 03 Plan 06 complete — Twitter v2 streaming text listener (REQ-text-listener / 03-CONTEXT D-07): tweepy.asynchronous.AsyncStreamingClient subclass + score-signal regex (\d{1,2}\s*[-:]\s*\d{1,2}) + TWITTER_BEARER_TOKEN env-gate degrading to no-op (RESEARCH Pitfall 1: Basic tier deprecated 2026-02-06 for new accounts); soft-confirm-only contract — pushes PendingEvent(source=twitter) into arbiter.score_changes, NEVER sole-sources a state mutation per arbiter's >=2-source rule; 2 new constants (TWITTER_API_BASE_URL + TWITTER_RULE_SET with 9 entries: 5 hashtags + 4 league/caster accounts). 3 GREEN tests replaced Wave-0 xfail stubs (test_emits_typed_soft_events / test_twitter_only_update_quarantined / test_no_token_noop). mypy + ruff clean. 287 passed / 26 xfailed (up 3 GREEN from 284/29). 8 min wall-clock.
 
 ---
 
@@ -28,25 +28,25 @@ progress:
 
 - **Core value:** Live pricing engine for Valorant BO3 series + per-map Kalshi markets. Re-prices the series at any moment during a live match, hybrid market-maker / directional taker, fast enough to capture edge or — at minimum — avoid being adversely selected.
 - **Owner:** jxc2008@nyu.edu
-- **Status:** Phases 0/1/2 complete. Phase 3 (live ingestion) in progress — Plans 00/01/02/03/04/05 done; 3 plans remaining (03-06 text-listener / 03-07 ETL re-run + calibration / 03-08 E2E gate).
+- **Status:** Phases 0/1/2 complete. Phase 3 (live ingestion) in progress — Plans 00/01/02/03/04/05/06 done; 2 plans remaining (03-07 ETL re-run + calibration / 03-08 E2E gate).
 - **Source-of-truth design docs:** `prd.md`, `roadmap.md`, `CLAUDE.md` at repo root.
 - **Locked decisions:** 22 (DEC-001 through DEC-022) — see `.planning/PROJECT.md` `<decisions>` blocks.
 
 ## Current Position
 
 Phase: 03 (live-ingestion-layer) — IN PROGRESS
-Plan: 6 of 9 done (03-00 test infrastructure, 03-01 match-state-v2-migration, 03-02 round-conclusion-v2-surface, 03-03 arbiter-and-latency, 03-04 scoreboard-poller, 03-05 ocr-pipeline)
+Plan: 7 of 9 done (03-00 test infrastructure, 03-01 match-state-v2-migration, 03-02 round-conclusion-v2-surface, 03-03 arbiter-and-latency, 03-04 scoreboard-poller, 03-05 ocr-pipeline, 03-06 text-listener)
 
 - **Current phase:** 03
-- **Current plan:** 6 of 9
-- **Status:** In progress; next plan is 03-06-text-listener
-- **Progress:** [████████▊░] 88%
+- **Current plan:** 7 of 9
+- **Status:** In progress; next plan is 03-07-etl-rerun-and-calibration
+- **Progress:** [█████████░] 92%
 
 ```
 Phase 0  [##########] Complete (3/3 plans)
 Phase 1  [##########] Complete (7/7 plans)
 Phase 2  [##########] Complete (5/5 plans)
-Phase 3  [######░░░░] In progress (6/9 plans)
+Phase 3  [#######░░░] In progress (7/9 plans)
 Phase 4  [          ] Pending
 Phase 5  [          ] Pending
 Phase 6  [          ] Pending
@@ -60,7 +60,7 @@ Phase 7  [          ] Pending
 | 0 — Foundation | Complete (2026-04-27) | 3 (00-01, 00-02, 00-03) | 3 |
 | 1 — Core pricing engine | Complete | 7 (01-01..01-07) | 7 |
 | 2 — Round-event data | Complete (2026-05-01) | 5 (02-01..02-05) | 5 |
-| 3 — Live ingestion layer | In progress | 9 (03-00..03-08) | 6 |
+| 3 — Live ingestion layer | In progress | 9 (03-00..03-08) | 7 |
 | 4 — Quoting layer | Pending | none | — |
 | 5 — Validation | Pending | none | — |
 | 6 — Deployment | Pending | none | — |
@@ -82,6 +82,7 @@ Phase 7  [          ] Pending
 | Phase 03 P03 | 7 min, 3 tasks, 8 files | DEC-006 v2 arbiter + 6-stage timestamps GREEN; 259 passed / 27 xfailed |
 | Phase 03 P04 | 10 min, 2 tasks, 5 files | Async rib.gg scoreboard poller + tenacity Retry-After-aware async resilience GREEN; 264 passed / 33 xfailed |
 | Phase 03 P05 | 10 min, 4 tasks, 11 files | Tesseract OCR pipeline (4 async workers + FrameSource Protocol + 9 constants + dump_roi_overlay.py operator helper) GREEN; 284 passed / 19 xfailed (GREEN'd 6 OCR tests; round-end-banner placeholder x2 xfailed for Phase 3.5 fixture) |
+| Phase 03 P06 | 8 min, 2 tasks, 5 files | Twitter v2 text listener (REQ-text-listener / D-07): tweepy.asynchronous.AsyncStreamingClient subclass + score-signal regex + degrade-to-no-op env gate + soft-confirm-only contract via arbiter.score_changes (>=2-source rule blocks Twitter-alone commits); 9-rule TWITTER_RULE_SET. 287 passed / 26 xfailed (3 GREEN, up from 284/29). |
 
 ## Accumulated Context
 
@@ -116,6 +117,11 @@ Phase 7  [          ] Pending
 - **2026-05-08 — Score-banner OCR worker pushes FULL {a_round, b_round} fields_proposed shape (not diff-only).** Matches the rib.gg poller's emission shape (03-04 SUMMARY) so the arbiter's signature-grouping over fields_proposed.items() trips the ≥2-source cross-confirm rule (DEC-006 v2). Diff-only would never match the full-shape ribgg pushes and the cross-confirm would never fire.
 - **2026-05-08 — D-13 carry-forward without per-frame quarantine PendingEvent.** Workers log + skip-cycle on parse failure; the existing 5s staleness kill-switch handles extended degradation. Conflating with per-frame quarantine PendingEvents would race against the soft-commit contract that the arbiter implements for bomb_events.
 - **2026-05-08 — _detect_round_end_banner ships as a placeholder gray-pixel-content threshold; both round-end tests xfail with Phase 3.5 operator-recalibrate TODO.** Building a synthetic round-end banner frame to exercise the placeholder reliably requires either operator-supplied banner template OR a sophisticated synthetic banner mock — neither in scope for Plan 03-05. xfail with explicit Phase 3.5 TODO is the clean signal for downstream calibration work.
+- **2026-05-10 — tweepy 4.16.x exposes AsyncStreamingClient under tweepy.asynchronous, not at the tweepy top level.** Plan 03-06 `<interfaces>` block referenced `tweepy.AsyncStreamingClient` which AttributeErrors at module load. Fix: `from tweepy.asynchronous import AsyncStreamingClient` while still using `tweepy.StreamRule` (top-level). Documented in module docstring "Implementation notes" so future maintainers don't re-introduce the broken import. Rule-1 deviation auto-fixed in commit `cbf2017`.
+- **2026-05-10 — Whitespace-only TWITTER_BEARER_TOKEN counts as empty (.strip() before truthiness check).** test_no_token_noop second pass with `monkeypatch.setenv("TWITTER_BEARER_TOKEN", "   ")` verifies — accidental blank-string secrets in CI configs degrade to no-op rather than 401-looping a real client.
+- **2026-05-10 — Text listener tests exercise on_tweet via direct method calls, NOT a real network stream.** environment_notes "tests should mock the Twitter API (no real network)" satisfied by avoiding the network code path entirely (the rule-sync / listener.filter() path is only entered when the token gate passes, which test_no_token_noop inverts). No aioresponses fixture needed.
+- **2026-05-10 — Twitter-only quarantine asserted via the staleness path (t_observed = wall_time() - 10s).** Pushing a fresh single-source event would assert hold-not-quarantine semantics; the SPEC §4 acceptance is the stronger "Twitter-only update quarantined" assertion which the staleness path produces directly via _DEQUE_MAX_AGE_S=3s expiry.
+- **2026-05-10 — type: ignore[misc] localized on `class _MatchSignalListener(AsyncStreamingClient)`.** tweepy ships no stubs so AsyncStreamingClient resolves to Any under mypy; "Class cannot subclass Any [misc]" fires. The ignore is canonical for stubless library inheritance and is scoped to the one declaration line.
 
 ### Recent decisions (cross-phase)
 
@@ -151,7 +157,7 @@ None.
 
 ## Session Continuity
 
-- **Last session ended:** 2026-05-08 — Phase 03 Plan 05 (ocr-pipeline) shipped. Commits: `ebbb840` (Task 1: feat — OCR constants + FrameSource Protocol + StubFrameSource) → `b0acf99` (Task 2: feat — Tesseract OCR pipeline with 4 async workers, REQ-ocr-pipeline / DEC-024 v2) → `d61b1c1` (Task 3: test — OCR worker tests + benchmarks; xfail placeholder ROIs per D-11) → `6f825fd` (Task 4: feat — scripts/dump_roi_overlay.py operator ROI calibration helper).
-- **Stopped at:** Completed 03-05-ocr-pipeline-PLAN.md
-- **Next action:** Plan 03-06 (text-listener). Wave 3D — Twitter v2 streaming listener with degrade-to-no-op on missing TWITTER_BEARER_TOKEN; pushes PendingEvent(source="twitter", event_type="score_change") into Arbiter.score_changes as a soft cross-confirm. Twitter NEVER sole-sources a score commit (arbiter requires ≥2 distinct sources).
+- **Last session ended:** 2026-05-10 — Phase 03 Plan 06 (text-listener) shipped. Commits: `cbf2017` (Task 1: feat — Twitter v2 streaming text listener with degrade-to-no-op, REQ-text-listener) → `e25b5de` (Task 2: test — text listener tests for soft events + Twitter-only quarantine + no-token-noop).
+- **Stopped at:** Completed 03-06-text-listener-PLAN.md
+- **Next action:** Plan 03-07 (etl-rerun-and-calibration). REQ-round-conclusion-lookup ETL re-run against ~1000 series with response caching via requests-cache filesystem backend (D-08), per-series SQLite transactions for idempotency (D-09), output to NEW data/round_events_v2.sqlite (D-07). Then v2 calibrator rewrite filtering to bomb_planted=True rows, deriving (attackers_alive, defenders_alive, time_remaining_bucket=5s, side, map) cell keys per D-04, emitting models/round_conclusion.json with schema_version: 2 (D-06).
 - **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs. Constraint detail in `.planning/intel/constraints.md`. Phase 3 implementation decisions in `.planning/phases/03-live-ingestion-layer/03-CONTEXT.md` (D-01 through D-14).

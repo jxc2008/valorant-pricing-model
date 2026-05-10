@@ -163,7 +163,7 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
 | 0. Foundation | 3/3 | Complete    | 2026-04-27 |
 | 1. Core pricing engine | 7/7 | Complete    | 2026-04-30 |
 | 2. Round-event data | 5/5 | Complete    | 2026-05-01 |
-| 3. Live ingestion layer | 6/9 | In Progress | — |
+| 3. Live ingestion layer | 7/9 | In Progress|  |
 | 4. Quoting layer | 0/0 | Not started | — |
 | 5. Validation | 0/0 | Not started | — |
 | 6. Deployment | 0/0 | Not started | — |
@@ -194,4 +194,4 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
 **Surfaced:** 2026-05-06 during Phase 03 discussion. Phase 7.2 drift detection (alert-only) is the only existing mitigation; covers catastrophic drift but not normal-cadence refresh during a season. Related gaps not in scope of this item: no within-event recency weighting (early-stage games count same as recent), no patch-version awareness, no roster-change awareness.
 
 **Plans:**
-- [ ] TBD (promote with `/gsd-review-backlog` when ready)
+7/9 plans executed
