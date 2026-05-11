@@ -162,18 +162,6 @@ Source: DEC-005 / CLAUDE.md rule 9 / PRD §5.4.
 """
 
 # --------------------------------------------------------------------------- #
-# Mode flip                                                                   #
-# --------------------------------------------------------------------------- #
-
-VEGA_DIRECTIONAL_THRESHOLD: Final[float] = 0.04  # TBD
-"""Vega threshold above which the trading mode flips from MM to DIRECTIONAL.
-
-Source: DEC-001 / CLAUDE.md "Domain constants" / roadmap.md §4.2.
-TBD — initial guess; calibrate after 20+ live matches (PRD §9.2,
-REQ-calibration-loop).
-"""
-
-# --------------------------------------------------------------------------- #
 # Phase 2 — rib.gg probe ETL (REQ-round-event-data-pipeline)                  #
 # --------------------------------------------------------------------------- #
 

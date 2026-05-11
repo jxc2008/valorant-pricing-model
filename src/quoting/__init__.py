@@ -20,6 +20,7 @@ from src.quoting.market_data import (
     SyntheticMarketData,
     make_quote,
 )
+from src.quoting.mode_selector import TradingMode, trading_mode
 from src.quoting.order_manager import KalshiOrderManager, Quote, StrategyId
 from src.quoting.portfolio import PortfolioState
 
@@ -33,6 +34,7 @@ __all__ = [
     "Quote",
     "StrategyId",
     "SyntheticMarketData",
+    "TradingMode",
     "kill_switch_api_error",
     "kill_switch_brier",
     "kill_switch_deviation",
@@ -41,4 +43,5 @@ __all__ = [
     "load_private_key",
     "make_quote",
     "sign_request",
+    "trading_mode",
 ]

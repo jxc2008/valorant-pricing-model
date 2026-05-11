@@ -39,8 +39,6 @@ EXPECTED_NAMES: tuple[str, ...] = (
     "KILL_SWITCH_DEVIATION_C",
     "KILL_SWITCH_BRIER_BOUND",
     "KILL_SWITCH_BRIER_WINDOW",
-    # Mode flip
-    "VEGA_DIRECTIONAL_THRESHOLD",
     # Phase 2 — rib.gg probe ETL
     "RIBGG_BASE_URL",
     "RIBGG_RECENCY_MONTHS",
@@ -160,7 +158,6 @@ EXPECTED_TYPES: dict[str, type] = {
     "KILL_SWITCH_DEVIATION_C": int,
     "KILL_SWITCH_BRIER_BOUND": float,
     "KILL_SWITCH_BRIER_WINDOW": int,
-    "VEGA_DIRECTIONAL_THRESHOLD": float,
     "RIBGG_BASE_URL": str,
     "RIBGG_RECENCY_MONTHS": int,
     "RIBGG_TARGET_MATCH_COUNT": int,
@@ -296,11 +293,6 @@ def test_kill_switch_brier_bound_in_unit_interval() -> None:
 
 def test_kill_switch_brier_window_is_positive_int() -> None:
     assert constants.KILL_SWITCH_BRIER_WINDOW > 0
-
-
-def test_vega_directional_threshold_in_unit_interval() -> None:
-    # Vega here is variance of next theo update, theo in [0,1] => vega in [0, 0.25].
-    assert 0.0 < constants.VEGA_DIRECTIONAL_THRESHOLD <= 0.25
 
 
 # --------------------------------------------------------------------------- #
