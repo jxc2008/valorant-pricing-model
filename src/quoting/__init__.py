@@ -11,11 +11,15 @@ from src.quoting.market_data import (
     SyntheticMarketData,
     make_quote,
 )
+from src.quoting.order_manager import KalshiOrderManager, Quote, StrategyId
 
 __all__ = [
+    "KalshiOrderManager",
     "KalshiWsMarketData",
     "MarketDataSource",
     "MarketQuote",
+    "Quote",
+    "StrategyId",
     "SyntheticMarketData",
     "load_private_key",
     "make_quote",

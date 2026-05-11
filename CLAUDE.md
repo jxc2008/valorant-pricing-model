@@ -133,6 +133,9 @@ python scripts/probe_round_events.py
 # Phase 1 DP pre-compute
 python scripts/build_dp_table.py
 
+# Operator gate 2 — Kalshi auth smoke (one-time after .env populated)
+python scripts/kalshi_auth_smoke.py
+
 # Live bot (dry-run default)
 python -m src.main --match <ticker>
 python -m src.main --match <ticker> --live   # only after paper-trade gate
