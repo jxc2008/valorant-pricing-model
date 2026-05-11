@@ -731,3 +731,76 @@ class LiveTheoEngine:
         finally:
             _clear_pricing_caches()
             _dp._clear_pricing_caches()
+
+
+# --------------------------------------------------------------------------- #
+# 10. Post-plant vega (DEC-018 v2 second arm — REQ-vega-output)               #
+# --------------------------------------------------------------------------- #
+
+
+def compute_vega_post_plant(
+    state: MatchState,
+    lookup: RoundConclusionLookup,
+) -> float:
+    """Variance over post-plant outcomes {kill, defuse, time-out}.
+
+    Mirrors the between-round vega shape (DEC-018 D-10/D-11)::
+
+        var = sum_{o in outcomes} P(o) * (theo_after_outcome - theo_now)**2
+
+    Outcomes parameterized by (att, def, time_bucket); the post-plant
+    lookup hierarchy provides the marginal probability per outcome.
+
+    Returns 0.0 when state.bomb_planted=False (no post-plant context) — the
+    mode selector reads this in the IDLE / between-round branches and
+    correctly avoids using it for routing.
+
+    Returns 0.0 on sparse cells (defensive fallback, mirroring Phase 03
+    D-05 between-round-fn semantics) — Phase 5 calibration prioritizes
+    populating sparse cells.
+
+    DEC-018 v2: this formula is TBD per PRD §9.5. The shape implemented
+    here is the recommended starting point per 04-RESEARCH §"Open Questions"
+    #2; calibrate concretely in Phase 5 against logged post-plant theo
+    updates by minimizing realized vega-vs-spread tracking error.
+
+    TODO(phase-5-calibrate): refine outcome probabilities + theo-after
+    transitions once calibration data exists.
+
+    Source: REQ-vega-output / DEC-018 v2 / 04-RESEARCH §"Open Questions" #2.
+    """
+    if not state.bomb_planted:
+        return 0.0
+    if state.attackers_alive is None or state.defenders_alive is None:
+        return 0.0
+    if state.time_left_s is None:
+        return 0.0
+
+    side = state.side_orient
+    map_name = state.map_pool[state.map_idx]
+    att = state.attackers_alive
+    def_ = state.defenders_alive
+    time_bucket = int(state.time_left_s // TIME_BUCKET_WIDTH_S)
+
+    # Current post-plant theo (the cell estimate).
+    p_now = lookup.post_plant_p(att, def_, time_bucket, side, map_name)
+
+    # Three plausible outcomes:
+    #   - kill: defender team killed (att, def_ - 1)        — attackers win round
+    #   - defuse: defender defuses (att, def_) at time 0    — defenders win round
+    #   - time-out: timer expires (att, def_) at time 0     — attackers win round
+    # Phase 04 simplification: equal-probability weights (1/3 each); Phase 5
+    # calibration replaces with empirical frequencies. The variance is what
+    # quote-width sizing consumes; getting the SHAPE right matters more than
+    # getting the EXACT probabilities right at this stage.
+    p_kill = lookup.post_plant_p(
+        att, max(0, def_ - 1), time_bucket, side, map_name
+    )
+    p_defuse = lookup.post_plant_p(att, def_, 0, side, map_name)
+    p_timeout = lookup.post_plant_p(att, def_, 0, side, map_name)
+
+    weights = (1 / 3, 1 / 3, 1 / 3)
+    outcomes = (p_kill, p_defuse, p_timeout)
+    return sum(
+        w * (p_outcome - p_now) ** 2 for w, p_outcome in zip(weights, outcomes)
+    )
