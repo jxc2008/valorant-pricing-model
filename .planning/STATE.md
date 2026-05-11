@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 04
-current_plan: "4 of 9 (04-00..04-03 shipped; next: 04-04 mode-selector — Wave 3, depends on 04-03 kill-switch surface)"
+current_plan: "5 of 9 (04-00..04-04 shipped; next: 04-05 MM-between-round quoter — Wave 4, depends on 04-04 trading_mode + theo.vega surface)"
 status: in-progress
-stopped_at: Completed 04-03-kill-switches-PLAN.md
-last_updated: "2026-05-11T20:09:00.216Z"
+stopped_at: Completed 04-04-mode-selector-PLAN.md
+last_updated: "2026-05-11T20:27:11.564Z"
 last_activity: 2026-05-11
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 33
-  completed_plans: 28
-  percent: 85
+  completed_plans: 29
+  percent: 88
 ---
 
 # STATE — Valorant Live Pricing Model
 
 **Project:** Valorant Live Pricing Model
 **Last activity:** 2026-05-11
-**Last activity description:** Phase 04 Plan 03 (kill-switches) shipped — REQ-kill-switches Wave-2 GREEN promotion. Five pure-predicate kill switches in `src/quoting/kill_switches.py` (4 DEC-005 + 1 Pitfall 7 carry-forward): `kill_switch_staleness` (strict > 5s on `state.last_updated_ts`), `kill_switch_deviation` (strict > 20c on `|round(theo.theo_series * 100) - market.mid|`), `kill_switch_brier` (window-full AND strict > 0.30 mean — uses `math.fsum` Shewchuk pairwise summation to avoid IEEE 754 drift: naive sum of 50 copies of 0.30 yields 0.30000000000000027 which would spuriously trip the boundary), `kill_switch_api_error` (non-strict >= 3 from `reference/market_maker.py:73` `_MAX_ERRORS_BEFORE_PAUSE` salvage; consumes `KalshiOrderManager.error_streak`), `kill_switch_market_invalid` (Pitfall 7 WS reconnect: `not market.is_valid` — mode-selector rule 1 returns IDLE during reconnect gaps). `KillSwitchAggregator` owns `recent_briers: deque(maxlen=KILL_SWITCH_BRIER_WINDOW)` as a PUBLIC attribute so plan 04-08 reconciliation can `agg.recent_briers.append(score)` directly after round resolution (Pitfall 4 contract: only when mode != IDLE — documented in class docstring, NOT enforced by predicate). `.any_tripped(state, theo, market, error_streak)` returns `(bool, sorted_names: list[str])` — sorted name list is deterministic across Python runs (Phase 03 D-08 set-iteration-non-determinism carry-forward). DEC-005 absolute: no per-switch off-switch flag — grep guard `rg "disable_" src/quoting/kill_switches.py` returns no matches (docstring paraphrased "per-switch off-switch flag / per-switch bool knob" to dodge self-tripping the guard; same pattern as Phase 03 plan 03-05). 18 GREEN tests cover trip + non-trip boundary per predicate (staleness 5.01s/5.0s/4.99s; deviation mid=71/70; brier 49-zeros/50×0.30/50×0.40; api_error 3/2/10; market_invalid False/True) plus 5 aggregator semantics tests (empty / single-staleness / multi-trip-sorted / deque-shape / brier-accumulated). 374 passed / 53 xfailed (+18 GREEN, -10 xfailed from 04-02 baseline 356/63; 0 regressions); mypy --strict src/quoting/ clean (6 source files).
+**Last activity description:** Phase 04 Plan 04 (mode-selector + post-plant vega) shipped — REQ-mode-selector + REQ-vega-output Wave-3 GREEN. Pure-function `trading_mode(state, theo, market, vega_between, vega_post_plant, kill_switch_active) -> TradingMode` in `src/quoting/mode_selector.py` with six rules implemented as literal `if ... return ...` sequence (source-code order IS priority per RESEARCH Pitfall 3): (1) kill_switch_active → IDLE, (2) state.bomb_planted → POST_PLANT_QUOTE, (3) mid-round-not-planted → IDLE, (4) |round(theo*100) - market.mid| > TAKE_THRESHOLD → DIRECTIONAL_TAKE, (5) market.spread > MM_MIN_EDGE → MM_BETWEEN_ROUND, (6) fall-through → IDLE. `TradingMode = Literal[...]` four-state alphabet exported alongside `trading_mode`. `_is_mid_round(state)` returns `state.time_left_s is not None` per Phase 03 D-14. Pure: same inputs always produce same output (no I/O, no hidden state); caller passes `kill_switch_active` via `KillSwitchAggregator.any_tripped()[0]`. `vega_between`/`vega_post_plant` args reserved for plans 04-05/04-07 (selector doesn't route on vega per DEC-018 v2; `del` statement in body documents intent). DIRECTIONAL_TAKE beats MM_BETWEEN_ROUND on tie (declared order). ATOMIC `VEGA_DIRECTIONAL_THRESHOLD` deletion across `src/config/constants.py` (constant + section header) + `tests/config/test_constants.py` (EXPECTED_NAMES + EXPECTED_TYPES + `test_vega_directional_threshold_in_unit_interval` deleted) in commit `4015006` — Phase 03 D-08 same-commit Rule-3 prophylactic carry-forward. `compute_vega_post_plant(state, lookup) -> float` shipped in `src/pricing/live_theo.py` Section 10 as top-level function (NOT method) mirroring `_compute_vega` shape: `var = sum_o P(o) * (theo_after_outcome - theo_now)**2` over three outcomes {kill, defuse, time-out} with equal 1/3 weights (Phase 04 simplification; Phase 5 calibrates empirical frequencies — TODO marker in docstring). Defensive None-guards return 0.0 on bomb_planted=False OR any of attackers_alive/defenders_alive/time_left_s being None (mirrors Phase 03 D-05). 8 GREEN mode-selector tests (was 7 RED stubs) cover 6 rules + tie-break + pure-function determinism; 7 GREEN compute_vega_post_plant tests cover 4 None-guards + non-negative + pure-function + defenders-dead-low-variance. 387 passed / 46 xfailed (+13 GREEN, -7 xfailed from 04-03 baseline 374/53; 0 regressions); mypy --strict src/quoting/ + src/state/ + src/pricing/ clean (16 source files). Auto-fixes: [Rule 3 - Blocking] inline `_make_state` helper in tests/pricing/test_vega_post_plant.py (tests/pricing/ has no conftest, can't see ingestion fixture — pattern matches existing test_live_theo_dispatch.py); [Rule 1 - Bug] deleted `test_vega_directional_threshold_in_unit_interval` (constant no longer exists — atomic deletion contract); [Rule 1 - Bug] `del vega_between, vega_post_plant` documents reserved-arg intent without `# noqa`.
 
 ---
 
@@ -34,20 +34,20 @@ progress:
 
 ## Current Position
 
-Phase: 04 (quoting-layer) — IN PROGRESS (Wave 2 complete; Wave 3 next)
-Plan: 4 of 9
+Phase: 04 (quoting-layer) — IN PROGRESS (Wave 3 complete; Wave 4 next)
+Plan: 5 of 9
 
 - **Current phase:** 04
-- **Current plan:** 4 of 9 (04-00..04-03 shipped; next: 04-04 mode-selector — Wave 3, depends on 04-03 kill-switch surface)
+- **Current plan:** 5 of 9 (04-00..04-04 shipped; next: 04-05 MM-between-round quoter — Wave 4, depends on 04-04 trading_mode + theo.vega surface)
 - **Status:** in-progress
-- **Progress:** [█████████░] 85%
+- **Progress:** [█████████░] 88%
 
 ```
 Phase 0  [##########] Complete (3/3 plans)
 Phase 1  [##########] Complete (7/7 plans)
 Phase 2  [##########] Complete (5/5 plans)
 Phase 3  [##########] Complete (9/9 plans)
-Phase 4  [####......] In Progress (4/9 plans)
+Phase 4  [#####.....] In Progress (5/9 plans)
 Phase 5  [          ] Pending
 Phase 6  [          ] Pending
 Phase 7  [          ] Pending
@@ -61,7 +61,7 @@ Phase 7  [          ] Pending
 | 1 — Core pricing engine | Complete | 7 (01-01..01-07) | 7 |
 | 2 — Round-event data | Complete (2026-05-01) | 5 (02-01..02-05) | 5 |
 | 3 — Live ingestion layer | Complete (2026-05-09) | 9 (03-00..03-08) | 9 |
-| 4 — Quoting layer | In Progress | 9 (04-00..04-08) | 4 |
+| 4 — Quoting layer | In Progress | 9 (04-00..04-08) | 5 |
 | 5 — Validation | Pending | none | — |
 | 6 — Deployment | Pending | none | — |
 | 7 — Operational maturity | Pending | none | — |
@@ -89,6 +89,7 @@ Phase 7  [          ] Pending
 | Phase 04 P01 | 14 min, 3 tasks, 9 files (4 created + 5 modified) | REQ-kalshi-order-manager Wave-2 GREEN. Hand-rolled RSA-PSS signer (~50 lines; padding.PSS(MGF1(SHA256), salt_length=PSS.DIGEST_LENGTH) verified docs.kalshi.com 2026-05-09; defensive `assert '?' not in path` for Pitfall 1) + KalshiOrderManager async REST plumbing (place_quote/cancel_quote/cancel_all_orders; /portfolio/orders/batched 2 tokens/order; dry_run constructor arg as single source of truth per DEC-022/CLAUDE.md rule 13; error_streak feeds kill_switch_api_error; Quote.strategy_id v2 field for DEC-020 fill-ledger routing) + MarketQuote (frozen+slots) + MarketDataSource Protocol (runtime_checkable) with SyntheticMarketData (default for dry-run/tests) + KalshiWsMarketData skeleton (dry_run=True returns; dry_run=False raises NotImplementedError pending Phase 6 deployment work) + mark_invalid Pitfall 7 mitigation + scripts/kalshi_auth_smoke.py operator-gated GET /exchange/status (exit codes 0/1/2; .env-missing path verified locally) + ATOMIC CLAUDE.md correction (PKCS1v15→RSA-PSS in same commit as kalshi_auth.py). 326 passed / 70 xfailed (+20 GREEN from 306/80 baseline; 0 regressions); mypy --strict src/quoting/ clean (4 source files). |
 | Phase 04 P02 | 4 min, 2 tasks, 6 files (3 created + 3 modified) | REQ-kelly-sizer Wave-2 GREEN. Pure `kelly_size(theo, market_yes_ask, bankroll, series_id, current_series_exposure)` in src/sizing/kelly.py implementing DEC-023 v2 verbatim three-cap formula (half-Kelly → per-market 0.05 → headroom = aggregate 0.10 − exposure[s]); preserves v1 single-market compat when exposure=={}. Mutable PortfolioState registry in src/quoting/portfolio.py with on_place / on_settle / snapshot / current methods — Pitfall 5 mitigation surface (RESEARCH §"Common Pitfalls" #5: on_settle clips at 0.0 against double-settlement bugs; grep-discoverable name so plan 04-08 reconciliation can wire round-resolution callback). 30 new GREEN tests: 17 kelly (13 unit + 4 hypothesis property tests over full input domain covering never-full-Kelly invariant, aggregate-cap-binding at exposure ≥ 0.10, non-negative-integer, no-mutation-of-snapshot) + 13 portfolio_state unit tests (empty / monotonic accumulation / independent series / settlement decrement / double-settlement clipping / snapshot copy semantics / negative-fraction ValueError guards / full place→settle lifecycle). 356 passed / 63 xfailed (+30 GREEN, -7 xfailed from 04-01 baseline 326/70; 0 regressions); mypy --strict src/sizing/ (2 files) + src/quoting/ (5 files, +1 portfolio.py) clean. Integration smoke verified: `ps.on_place('s', 0.05); kelly_size(0.6, 50, 100000, 's', ps.snapshot()) → 100`. |
 | Phase 04 P03 | 5 min, 1 task, 3 files (1 created + 2 modified) | REQ-kill-switches Wave-2 GREEN. Five pure-predicate kill switches in src/quoting/kill_switches.py (4 DEC-005 + 1 Pitfall 7): kill_switch_staleness (strict > 5s), kill_switch_deviation (strict > 20c), kill_switch_brier (window-full AND strict > 0.30; uses math.fsum to avoid IEEE 754 drift on 50×0.30 boundary), kill_switch_api_error (non-strict >= 3 salvage from reference/market_maker.py:73), kill_switch_market_invalid (Pitfall 7 WS reconnect: not market.is_valid). KillSwitchAggregator owns recent_briers: deque(maxlen=KILL_SWITCH_BRIER_WINDOW) as PUBLIC attribute for plan 04-08 reconciliation append (Pitfall 4 contract: only when mode != IDLE — documented in docstring); .any_tripped() returns (bool, sorted_names) for deterministic logging. DEC-005 grep guard verified: `rg "disable_" src/quoting/kill_switches.py` returns no matches (docstring paraphrased to dodge self-trip — Phase 03 D-08 carry-forward). 18 GREEN tests (10 RED stubs replaced): trip + non-trip boundary per predicate + 5 aggregator semantics. 374 passed / 53 xfailed (+18 GREEN, -10 xfailed from 04-02 baseline 356/63; 0 regressions); mypy --strict src/quoting/ clean (6 source files). Auto-fixes: [Rule 1 - Bug] math.fsum for Brier mean (naive sum drifts to 0.30000000000000027 spuriously tripping boundary); [Rule 1 - Bug] docstring paraphrase to keep grep guard clean. |
+| Phase 04 P04 | 6 min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,11 @@ Phase 7  [          ] Pending
 - **2026-05-10 — v1 ETL `credits_to_bucket` shim deletion = NameError-at-runtime deprecation contract.** scripts/probe_round_events.py is forensic-only post-03-07; the call site is preserved with a `# noqa: F821` so ruff stays clean. tests/calibration/test_synthesize_states.py xfailed at the file level with raises=NameError (Rule 3 deviation auto-fixed in Task 1).
 - **2026-05-10 — `.gitignore` directory pattern flip for Phase 3 directories.** The bare `data/ribgg_cache/` directory pattern blocks `!data/ribgg_cache/.gitkeep` from un-ignoring (Git PATTERN FORMAT — "two consequences" caveat). Switching to glob form `data/ribgg_cache/*` per parent dir + explicit allow-list lines keeps the contents excluded while permitting the marker. Same fix applied to data/event_log/ and data/metrics/.
 - **2026-05-10 — Sample density vs SPEC §7 1c gate: smoke (3,2,8,atk,Lotus) cell shrunk_p≈0.527 lands near the DP's between-round inference.** Calibrator shipped 52 samples on that cell; happens to be near the population mean. Lopsided cells (5v1: +1.18¢; 1v5: -2.93¢) shift theo by 1-3¢ as expected, confirming the dispatch path is structurally active. Phase 5 calibration loop will refine sparse cells; 03-08 E2E gate uses asymmetric states with stronger signal per VALIDATION.md.
+- [Phase 04]: Six mode-selector rules implemented as literal if-return sequence — source-code order IS priority (RESEARCH Pitfall 3). DIRECTIONAL_TAKE (rule 4) beats MM_BETWEEN_ROUND (rule 5) on tie via declared order; verified by test_tie_directional_dominates_mm.
+- [Phase 04]: trading_mode is pure (no I/O, no hidden state, no class members) — caller passes kill_switch_active as explicit bool via KillSwitchAggregator.any_tripped(state, theo, market, error_streak)[0]. Mirrors plan 04-03 pure-predicate kill-switch layering.
+- [Phase 04]: VEGA_DIRECTIONAL_THRESHOLD deletion is ATOMIC across src/config/constants.py + tests/config/test_constants.py (EXPECTED_NAMES + EXPECTED_TYPES + value-invariant test) in commit 4015006 — Phase 03 D-08 same-commit Rule-3 prophylactic carry-forward. Documentary docstring refs in mode_selector.py + TAKE_THRESHOLD docstring preserved as historical context (not constant declarations).
+- [Phase 04]: compute_vega_post_plant ships at src/pricing/live_theo.py Section 10 as top-level function (NOT a method on LiveTheoEngine) — mirrors _compute_vega between-round shape. Three-outcome equal-weight variance (1/3 each: kill, defuse, time-out); Phase 5 calibrates empirical frequencies (TODO marker). Defensive None-guards return 0.0 (not raise) per Phase 03 D-05 — mode-selector reads in IDLE/between-round branches without crash risk.
+- [Phase 04]: vega_between/vega_post_plant args in trading_mode signature are RESERVED for downstream consumers (plans 04-05 MM / 04-07 post-plant); selector itself doesn't route on vega per DEC-018 v2. del statement in body documents intent without # noqa or # type: ignore. Mirrors round_conclusion.between_round_p pattern (del map_name, round_idx).
 
 #### Phase 04
 
@@ -211,6 +217,6 @@ None.
 ## Session Continuity
 
 - **Last session ended:** 2026-05-11 — Phase 04 Plan 03 (kill-switches) shipped. Commit: `b47f886` (feat — 5 pure-predicate kill switches + KillSwitchAggregator + math.fsum Brier-mean fix + docstring grep-guard paraphrase; 18 GREEN tests replacing 10 RED stubs). 1 file created (`src/quoting/kill_switches.py` ~170 lines) + 2 modified (`src/quoting/__init__.py` adding 6 new exports, `tests/quoting/test_kill_switches.py` 10 RED stubs → 18 GREEN tests). 374 passed / 53 xfailed (+18 GREEN, -10 xfailed from 04-02 baseline 356/63; 0 regressions); mypy --strict src/quoting/ clean (6 source files: kalshi_auth, order_manager, market_data, portfolio, kill_switches, __init__). Grep guards verified: `rg "disable_" src/quoting/kill_switches.py` returns empty (DEC-005 absolute — no per-switch off-switch flag). Integration smoke verified: `from src.quoting import KillSwitchAggregator, kill_switch_staleness, kill_switch_deviation, kill_switch_brier, kill_switch_api_error, kill_switch_market_invalid` resolves cleanly.
-- **Stopped at:** Completed 04-03-kill-switches-PLAN.md
+- **Stopped at:** Completed 04-04-mode-selector-PLAN.md
 - **Next action:** Phase 04 Plan 04 (mode-selector) — implements REQ-mode-selector (DEC-001 v2: three-way mode + IDLE selection rules 1-6). Wave 3, depends on 04-03 kill-switch surface (`KillSwitchAggregator.any_tripped()[0]` → kill_switch_active boolean for rule 1) AND 04-01 MarketQuote surface (market.spread for rule 5 MM_MIN_EDGE gate). Drops GREEN tests into pre-existing `tests/quoting/test_mode_selector.py` RED stubs from Plan 04-00 (6 xfailed tests covering rules 1-6 + tie-breaking semantics). Recommended next command: `/gsd:execute-phase 04`.
 - **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs. Constraint detail in `.planning/intel/constraints.md`. Phase 3 implementation decisions in `.planning/phases/03-live-ingestion-layer/03-CONTEXT.md`. Phase 4 RESEARCH/VALIDATION at `.planning/phases/04-quoting-layer/04-RESEARCH.md` + `04-VALIDATION.md`. Phase 4 Plan 01 + 02 + 03 docstring decisions at `.planning/phases/04-quoting-layer/04-01-kalshi-order-manager-SUMMARY.md` + `04-02-portfolio-kelly-SUMMARY.md` + `04-03-kill-switches-SUMMARY.md`.

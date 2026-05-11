@@ -89,13 +89,14 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 - **Scope:** pricing output contract
 - **Description:** Return `confidence ∈ [0, 1]` representing data-weight in the prediction.
 
-### REQ-vega-output (TWO CONTEXTS v2)
+### REQ-vega-output (TWO CONTEXTS v2) — **Complete (2026-05-11, plan 01-04 vega_between + plan 04-04 vega_post_plant)**
 - **Source:** prd.md §2, §5.4; roadmap.md §1.6 (v2 pivot)
 - **Scope:** pricing output contract
 - **Description:** Return TWO vega values, used in different modes (DEC-018 v2):
   - `vega_between_round` = `round_p × (theo_after_a_win − theo)² + (1−round_p) × (theo_after_b_win − theo)²` — variance over next round outcome. Sizes MM_BETWEEN_ROUND quote width.
   - `vega_post_plant` = variance over post-plant outcomes {kill, defuse, time-out}. **TBD formula** — picked + calibrated in Phase 4 against observed post-plant theo updates.
 - **Acceptance:** Phase 1 ships `vega_between_round`. `vega_post_plant` ships in Phase 4. The single `VEGA_DIRECTIONAL_THRESHOLD` constant from v1 is REMOVED — DIRECTIONAL_TAKE triggers on `|theo − market_mid|`, not on vega magnitude.
+- **Implementation (v2 / 04-04):** `compute_vega_post_plant(state, lookup) -> float` at `src/pricing/live_theo.py` Section 10 — top-level function (not a method) mirroring the Phase 1 `_compute_vega` between-round shape. Formula: `var = sum_o P(o) * (theo_after_outcome - theo_now)**2` over three outcomes {kill, defuse, time-out} with equal 1/3 weights (Phase 04 simplification; Phase 5 calibrates empirical frequencies — TODO marker in docstring). Defensive None-guards return 0.0 on bomb_planted=False OR any of attackers_alive/defenders_alive/time_left_s being None (mirrors Phase 03 D-05). `VEGA_DIRECTIONAL_THRESHOLD` deleted atomically in the same commit as the mode-selector (commit `4015006`). 7 GREEN tests in `tests/pricing/test_vega_post_plant.py` cover 4 None-guard branches + non-negative + pure-function determinism + defenders-dead-low-variance.
 
 ### REQ-end-to-end-latency — **Synthetic harness Complete (2026-05-09, plan 03-08); production gate Phase 5**
 - **Source:** prd.md §2
@@ -179,7 +180,7 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 - **Description:** Extract from `reference/market_maker.py` (per DEC-013): `Quote` dataclass, `_place_quote`, `_cancel_quote`, `cancel_all_orders`, error-streak retry, `_is_near_close` close-time guard, dry-run mode.
 - **Implementation (v2 / 04-01):** Hand-rolled ~50-line RSA-PSS signer (`src/quoting/kalshi_auth.py`) verified against docs.kalshi.com 2026-05-09. `KalshiOrderManager` (`src/quoting/order_manager.py`) with explicit-constructor `dry_run` (DEC-022 / CLAUDE.md rule 13), error_streak counter, /portfolio/orders/batched cancel_all (2 tokens/order). Quote.strategy_id v2 field for DEC-020 fill-ledger routing. MarketQuote + MarketDataSource Protocol (`src/quoting/market_data.py`) with SyntheticMarketData (default for dry-run/tests) and KalshiWsMarketData skeleton (live path raises NotImplementedError pending Phase 6 deployment). Operator-gated `scripts/kalshi_auth_smoke.py` for live-auth verification (RESEARCH Pitfall 8). Atomic CLAUDE.md correction PKCS1v15→RSA-PSS in same commit as auth code.
 
-### REQ-mode-selector (RESTRUCTURED v2 — three-way + IDLE)
+### REQ-mode-selector (RESTRUCTURED v2 — three-way + IDLE) — **Complete (2026-05-11, plan 04-04)**
 - **Source:** roadmap.md §4.2; prd.md §2.1 (v2 pivot — DEC-001 v2)
 - **Scope:** trading mode
 - **Description:** Pure function:
@@ -195,6 +196,7 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
   5. `market.spread > MM_MIN_EDGE` → MM_BETWEEN_ROUND
   6. otherwise → IDLE
 - **Acceptance:** rules evaluated in declared order; mode is a deterministic function of inputs (no hidden state); MM_BETWEEN_ROUND and DIRECTIONAL_TAKE are first-class peers (no "default" mode).
+- **Implementation (v2 / 04-04):** Pure-function `trading_mode` at `src/quoting/mode_selector.py` (~105 lines including module docstring + `_is_mid_round` helper). Six rules implemented as literal `if ... return ...` sequence — source-code order IS the priority per RESEARCH Pitfall 3 (NO match/dict dispatch). `TradingMode = Literal["MM_BETWEEN_ROUND", "DIRECTIONAL_TAKE", "POST_PLANT_QUOTE", "IDLE"]` four-state alphabet. Caller passes `kill_switch_active: bool` explicitly (computed via `KillSwitchAggregator.any_tripped(state, theo, market, error_streak)[0]`); selector doesn't know how kill switches are evaluated. `_is_mid_round(state)` returns `state.time_left_s is not None` per Phase 03 D-14 carry-forward. `vega_between`/`vega_post_plant` args reserved for downstream consumers (plans 04-05 MM / 04-07 post-plant); selector itself doesn't route on vega per DEC-018 v2 (`del` statement in body documents intent). DIRECTIONAL_TAKE wins ties vs MM_BETWEEN_ROUND via declared order. 8 GREEN tests in `tests/quoting/test_mode_selector.py` cover 6 rules + tie-break (`test_tie_directional_dominates_mm`) + pure-function determinism (`test_pure_function_no_hidden_state`).
 
 ### REQ-mm-quoter (NARROWED v2 — between-round only)
 - **Source:** roadmap.md §4.3; prd.md §5.4 (v2 pivot)
