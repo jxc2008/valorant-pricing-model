@@ -173,10 +173,11 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 
 ## Phase 4 — Quoting layer
 
-### REQ-kalshi-order-manager
+### REQ-kalshi-order-manager — **Complete (2026-05-11, plan 04-01)**
 - **Source:** roadmap.md §4.1
 - **Scope:** order plumbing
 - **Description:** Extract from `reference/market_maker.py` (per DEC-013): `Quote` dataclass, `_place_quote`, `_cancel_quote`, `cancel_all_orders`, error-streak retry, `_is_near_close` close-time guard, dry-run mode.
+- **Implementation (v2 / 04-01):** Hand-rolled ~50-line RSA-PSS signer (`src/quoting/kalshi_auth.py`) verified against docs.kalshi.com 2026-05-09. `KalshiOrderManager` (`src/quoting/order_manager.py`) with explicit-constructor `dry_run` (DEC-022 / CLAUDE.md rule 13), error_streak counter, /portfolio/orders/batched cancel_all (2 tokens/order). Quote.strategy_id v2 field for DEC-020 fill-ledger routing. MarketQuote + MarketDataSource Protocol (`src/quoting/market_data.py`) with SyntheticMarketData (default for dry-run/tests) and KalshiWsMarketData skeleton (live path raises NotImplementedError pending Phase 6 deployment). Operator-gated `scripts/kalshi_auth_smoke.py` for live-auth verification (RESEARCH Pitfall 8). Atomic CLAUDE.md correction PKCS1v15→RSA-PSS in same commit as auth code.
 
 ### REQ-mode-selector (RESTRUCTURED v2 — three-way + IDLE)
 - **Source:** roadmap.md §4.2; prd.md §2.1 (v2 pivot — DEC-001 v2)
