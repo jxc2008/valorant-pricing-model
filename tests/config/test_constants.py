@@ -87,6 +87,7 @@ EXPECTED_NAMES: tuple[str, ...] = (
     "MM_MIN_EDGE",
     "POST_PLANT_TAKE_THRESHOLD",
     "MIN_HALF_SPREAD",
+    "MM_VEGA_SPREAD_K",
     # Phase 4 — portfolio Kelly v2 (DEC-023)
     "SERIES_AGGREGATE_CAP_FRAC",
     # Phase 4 — promotion gate (DEC-020 v2)
@@ -198,6 +199,7 @@ EXPECTED_TYPES: dict[str, type] = {
     "MM_MIN_EDGE": int,
     "POST_PLANT_TAKE_THRESHOLD": int,
     "MIN_HALF_SPREAD": int,
+    "MM_VEGA_SPREAD_K": float,
     # Phase 4 — portfolio Kelly v2 (DEC-023)
     "SERIES_AGGREGATE_CAP_FRAC": float,
     # Phase 4 — promotion gate (DEC-020 v2)

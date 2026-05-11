@@ -530,6 +530,27 @@ shows 3c floor is tight (i.e., MM hypothetical fills are profitable net of fees
 AND well above MIN_FILLS_PER_MATCH).
 """
 
+MM_VEGA_SPREAD_K: Final[float] = 50.0  # TBD
+"""Vega-to-spread scaling factor for MM_BETWEEN_ROUND quoter.
+
+Half-spread formula (DEC-018 v2 / REQ-mm-quoter):
+    hs = max(MIN_HALF_SPREAD, MM_VEGA_SPREAD_K * sqrt(vega_between))
+          + staleness_penalty
+
+Initial guess: 50.0 scales Phase 1's typical vega_between range
+[0.001, 0.01] into a [1.5c, 5c] vega-driven band on top of the 3c floor.
+Net effective spreads at the bounds:
+  - vega = 0.001 (low conviction):  hs = max(3, 50*0.0316) = max(3, 1.58) = 3c
+  - vega = 0.005 (mid):              hs = max(3, 50*0.0707) = max(3, 3.54) = 3.54c
+  - vega = 0.01 (high):              hs = max(3, 50*0.1)    = max(3, 5)    = 5c
+Source: DEC-018 v2 / PRD §5.4 / RESEARCH §"Code Examples" half-spread formula.
+
+TODO(phase-5-calibrate): Tune k after 20+ live matches. If MM hypothetical
+fills are ALL at the 3c floor (vega contribution is always below), reduce
+k or raise vega normalization. If MM fills are ALL above 8c, raise k or
+lower the floor.
+"""
+
 # --------------------------------------------------------------------------- #
 # Phase 4 — portfolio Kelly v2 (DEC-023)                                      #
 # --------------------------------------------------------------------------- #

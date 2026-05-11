@@ -4,6 +4,12 @@ Public surface populated incrementally across plans 04-01 (auth +
 order manager + market data), 04-02 (portfolio exposure registry),
 04-03 (kill switches), through 04-08 (reconciliation + E2E).
 """
+from src.quoting.fill_ledger import (
+    HypotheticalFill,
+    append_fill,
+    maybe_record_mm_fill,
+    simulate_touched,
+)
 from src.quoting.kalshi_auth import load_private_key, sign_request
 from src.quoting.kill_switches import (
     KillSwitchAggregator,
@@ -25,6 +31,7 @@ from src.quoting.order_manager import KalshiOrderManager, Quote, StrategyId
 from src.quoting.portfolio import PortfolioState
 
 __all__ = [
+    "HypotheticalFill",
     "KalshiOrderManager",
     "KalshiWsMarketData",
     "KillSwitchAggregator",
@@ -35,6 +42,7 @@ __all__ = [
     "StrategyId",
     "SyntheticMarketData",
     "TradingMode",
+    "append_fill",
     "kill_switch_api_error",
     "kill_switch_brier",
     "kill_switch_deviation",
@@ -42,6 +50,8 @@ __all__ = [
     "kill_switch_staleness",
     "load_private_key",
     "make_quote",
+    "maybe_record_mm_fill",
     "sign_request",
+    "simulate_touched",
     "trading_mode",
 ]
