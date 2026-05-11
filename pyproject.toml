@@ -9,15 +9,18 @@ authors = [
 ]
 dependencies = [
     "aiohttp>=3.13,<4",
+    "cryptography>=42,<46",
     "numpy>=1.26,<3",
     "opencv-python>=4.10,<5",
     "Pillow>=10.4,<12",
     "pytesseract>=0.3.13,<1",
+    "python-dotenv>=1",
     "requests>=2.32",
     "requests-cache>=1.3,<2",
     "tenacity>=8.5",
     "tqdm>=4.66",
     "tweepy>=4.14,<5",
+    "websockets>=12,<14",
 ]
 
 [dependency-groups]
@@ -118,6 +121,21 @@ warn_return_any = true
 # to ALSO cover src/state/. RESEARCH Pitfall 7 — must add the override here
 # explicitly so CI runs strict, not just CLI invocations.
 module = "src.state.*"
+strict = true
+disallow_any_explicit = false
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+# Phase 04 SPEC §"Carry-forward" / RESEARCH §"User Constraints" — extend mypy --strict
+# from src/pricing/ + src/state/ to ALSO cover src/quoting/ (math + risk-control layer).
+module = "src.quoting.*"
+strict = true
+disallow_any_explicit = false
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+# Phase 04 SPEC §"Carry-forward" — strict on src/sizing/ (pure-function Kelly sizer).
+module = "src.sizing.*"
 strict = true
 disallow_any_explicit = false
 warn_return_any = true

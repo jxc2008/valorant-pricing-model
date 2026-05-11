@@ -84,6 +84,19 @@ EXPECTED_NAMES: tuple[str, ...] = (
     # Phase 3 — text listener (REQ-text-listener / 03-06 / D-07)
     "TWITTER_API_BASE_URL",
     "TWITTER_RULE_SET",
+    # Phase 4 — quoting layer thresholds (DEC-001 v2 mode selector)
+    "TAKE_THRESHOLD",
+    "MM_MIN_EDGE",
+    "POST_PLANT_TAKE_THRESHOLD",
+    "MIN_HALF_SPREAD",
+    # Phase 4 — portfolio Kelly v2 (DEC-023)
+    "SERIES_AGGREGATE_CAP_FRAC",
+    # Phase 4 — promotion gate (DEC-020 v2)
+    "RELATIVE_BRIER_EDGE_MIN",
+    "MIN_FILLS_PER_MATCH",
+    # Phase 4 — Kalshi endpoints
+    "KALSHI_BASE_URL",
+    "KALSHI_WS_URL",
 )
 
 
@@ -183,6 +196,19 @@ EXPECTED_TYPES: dict[str, type] = {
     "TESS_CONFIG_DIGIT_MULTI": str,
     "TWITTER_API_BASE_URL": str,
     "TWITTER_RULE_SET": tuple,
+    # Phase 4 — quoting layer thresholds (DEC-001 v2 mode selector)
+    "TAKE_THRESHOLD": int,
+    "MM_MIN_EDGE": int,
+    "POST_PLANT_TAKE_THRESHOLD": int,
+    "MIN_HALF_SPREAD": int,
+    # Phase 4 — portfolio Kelly v2 (DEC-023)
+    "SERIES_AGGREGATE_CAP_FRAC": float,
+    # Phase 4 — promotion gate (DEC-020 v2)
+    "RELATIVE_BRIER_EDGE_MIN": float,
+    "MIN_FILLS_PER_MATCH": int,
+    # Phase 4 — Kalshi endpoints
+    "KALSHI_BASE_URL": str,
+    "KALSHI_WS_URL": str,
 }
 
 

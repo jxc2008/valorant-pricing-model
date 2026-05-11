@@ -87,5 +87,11 @@ data/round_events_v2*
 !data/event_log/.gitkeep
 !data/metrics/.gitkeep
 
+# Phase 4 — hypothetical-fill ledgers (per-strategy JSONL files; per-machine).
+# Same glob-then-allow-list pattern as Phase 3 above (Git PATTERN FORMAT
+# "two consequences" caveat — bare `data/fills/` blocks `!.gitkeep`).
+data/fills/*
+!data/fills/.gitkeep
+
 # Autonomous-loop scratch output (operator harness; per-machine)
 .claude-loop-output.tmp

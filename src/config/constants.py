@@ -488,3 +488,111 @@ PERMANENT DEGRADATION (RESEARCH Pitfall 1):
 - Default deployments without TWITTER_BEARER_TOKEN env var degrade to no-op;
   the arbiter still satisfies its >=2-source rule via rib.gg + OCR.
 """
+
+# --------------------------------------------------------------------------- #
+# Phase 4 — quoting layer thresholds (DEC-001 v2 mode selector)               #
+# --------------------------------------------------------------------------- #
+
+TAKE_THRESHOLD: Final[int] = 5  # cents
+"""Between-round directional-take threshold (cents).
+
+DIRECTIONAL_TAKE fires when |theo_cents - market.mid| > TAKE_THRESHOLD.
+Source: DEC-001 v2 (replaces VEGA_DIRECTIONAL_THRESHOLD), PRD §2.1.
+
+TODO(phase-5-calibrate): Initial guess; tune from observed market structure
+after 20+ live matches per PRD §9.3. RESEARCH §"Open Questions" #1 cites
+5c as defensible starting point at typical Kalshi yes_bid/yes_ask spreads.
+"""
+
+MM_MIN_EDGE: Final[int] = 4  # cents
+"""Minimum market spread (cents) for MM_BETWEEN_ROUND to engage.
+
+MM_BETWEEN_ROUND fires when market.spread > MM_MIN_EDGE.
+Source: DEC-001 v2 selection rule 5, PRD §2.1.
+
+TODO(phase-5-calibrate): Initial guess; needs to exceed 2 * MIN_HALF_SPREAD
++ slippage budget so MM has room to quote inside the market. RESEARCH §"Open
+Questions" #1.
+"""
+
+POST_PLANT_TAKE_THRESHOLD: Final[int] = 3  # cents
+"""Post-plant directional-take threshold (cents) — narrower than between-round
+because post-plant theo is a high-conviction state (DEC-007 v2).
+
+POST_PLANT_QUOTE quoter takes when |theo - market| > POST_PLANT_TAKE_THRESHOLD,
+otherwise quotes at theo +/- narrow spread.
+Source: PRD §5.4, REQ-post-plant-quoter.
+
+TODO(phase-5-calibrate): Initial guess.
+"""
+
+MIN_HALF_SPREAD: Final[int] = 3  # cents
+"""MM half-spread floor (cents). MUST beat Kalshi commission + slippage per CRule 7.
+
+Justification (RESEARCH Pitfall 4, verified 2026-05-09):
+  - Kalshi taker fee at theo=50c: ceil(0.07 * 0.5 * 0.5 * 100) / 100 = 1.75c
+  - Maker fee = 25% of taker = 0.44c (we quote post_only=True)
+  - 3c half-spread + 0.44c maker fee = 2.56c net edge if theo is exact
+  - Covers 1c of model slippage AND 1c of arbiter staleness slippage
+Spread formula: spread = max(MIN_HALF_SPREAD, k * sqrt(vega_between)) + staleness_penalty.
+Source: PRD §5.4, REQ-mm-quoter, RESEARCH §"Standard Stack" Kalshi fee curve.
+
+TODO(phase-5-calibrate): Calibrate down to 2c only after Phase 5 paper-trade
+shows 3c floor is tight (i.e., MM hypothetical fills are profitable net of fees
+AND well above MIN_FILLS_PER_MATCH).
+"""
+
+# --------------------------------------------------------------------------- #
+# Phase 4 — portfolio Kelly v2 (DEC-023)                                      #
+# --------------------------------------------------------------------------- #
+
+SERIES_AGGREGATE_CAP_FRAC: Final[float] = 0.10
+"""Per-series aggregate exposure cap (fraction of bankroll) — DEC-023 v2.
+
+Bounds correlated exposure across moneyline + map handicaps + round handicaps
+on the same series. PER_MARKET_CAP_FRAC alone (0.05) does NOT bound aggregate
+correlated exposure; this layer adds the safety floor.
+
+Sizer formula (DEC-023):
+    f = max(0, KELLY_MULTIPLIER * f_full)
+    f = min(f, PER_MARKET_CAP_FRAC)                              # 0.05
+    headroom = max(0, SERIES_AGGREGATE_CAP_FRAC - exposure[s])  # 0.10
+    f = min(f, headroom)
+    return 0 if f == 0 else int(f * bankroll / ask)
+
+TODO(phase-5-calibrate): Defensive initial guess. Recompute from observed
+inter-market correlation after first paper-trade event. Full covariance-aware
+Kelly is REQ-portfolio-correlation-kelly (Phase 7).
+"""
+
+# --------------------------------------------------------------------------- #
+# Phase 4 — promotion gate (DEC-020 v2 — referenced by fill ledger / kill     #
+# switches; primary consumer is Phase 5 paper-trade evaluation)               #
+# --------------------------------------------------------------------------- #
+
+RELATIVE_BRIER_EDGE_MIN: Final[float] = 0.02
+"""Promotion gate: Brier(model) must beat Brier(market_mid) by this margin
+over a 50-round window. Replaces v1 absolute Brier 0.22 floor (DEC-020 v2).
+
+Source: DEC-020 v2, PRD §8, ROADMAP §5.3-5.4.
+"""
+
+MIN_FILLS_PER_MATCH: Final[int] = 3
+"""Promotion gate: MM strategy is cut from production if hypothetical fills
+averaged over a paper-trade event fall below this. DIRECTIONAL_TAKE
+(and POST_PLANT_QUOTE) can promote independently per DEC-020 v2.
+
+Source: DEC-020 v2, PRD §8.
+
+TODO(phase-5-calibrate): Initial guess; tune from observed MM fill rates.
+"""
+
+# --------------------------------------------------------------------------- #
+# Phase 4 — Kalshi endpoints                                                  #
+# --------------------------------------------------------------------------- #
+
+KALSHI_BASE_URL: Final[str] = "https://api.elections.kalshi.com/trade-api/v2"
+"""Kalshi REST base URL (verified 2026-05-09 via docs.kalshi.com)."""
+
+KALSHI_WS_URL: Final[str] = "wss://api.elections.kalshi.com/trade-api/ws/v2"
+"""Kalshi WebSocket URL (verified 2026-05-09 via docs.kalshi.com/getting_started/quick_start_websockets)."""
