@@ -173,7 +173,7 @@ Phases 1, 2, 3 run in parallel after Phase 0 completes — this is a deliberate 
 | 1. Core pricing engine | 7/7 | Complete    | 2026-04-30 |
 | 2. Round-event data | 5/5 | Complete    | 2026-05-01 |
 | 3. Live ingestion layer | 9/9 | Complete    | 2026-05-09 |
-| 4. Quoting layer | 0/0 | Not started | — |
+| 4. Quoting layer | 1/9 | In Progress | — |
 | 5. Validation | 0/0 | Not started | — |
 | 6. Deployment | 0/0 | Not started | — |
 | 7. Operational maturity | 0/0 | Not started | — |

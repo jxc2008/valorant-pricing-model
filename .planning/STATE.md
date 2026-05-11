@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 04
-current_plan: 0 of TBD (no plans yet — phase needs /gsd-spec-phase or /gsd-discuss-phase to begin)
-status: planning
-stopped_at: Phase 03 complete (live ingestion layer shipped)
-last_updated: "2026-05-10T03:29:18.047Z"
-last_activity: 2026-05-09
+current_plan: 1 of 9
+status: in-progress
+stopped_at: Completed 04-00-test-infrastructure-PLAN.md
+last_updated: "2026-05-11T19:35:47Z"
+last_activity: 2026-05-11
 progress:
   total_phases: 9
   completed_phases: 4
-  total_plans: 24
-  completed_plans: 24
-  percent: 100
+  total_plans: 33
+  completed_plans: 25
+  percent: 76
 ---
 
 # STATE — Valorant Live Pricing Model
 
 **Project:** Valorant Live Pricing Model
-**Last activity:** 2026-05-09
-**Last activity description:** Phase 03 complete — Wave 6 (Plan 03-08 E2E gate) shipped after Waves 0-5 fully GREEN; full ingestion stack live (MatchState v2 + arbiter + scoreboard + OCR + text listener + post-plant calibration). Synthetic E2E harness at tests/ingestion/test_e2e.py composes Arbiter + LiveTheoEngine through 30+ events end-to-end: seq_id strictly monotonic, 6-stage timestamps populated on every commit, p50 t_ingested → t_state_committed sub-millisecond (synthetic harness — production gate is Phase 5 paper-trade per RESEARCH Pitfall 3), bomb_plant p50 sub-millisecond, post-plant theo shift ≥ 1¢ on the (3, 2, 0, atk, Lotus) synthetic cell with asymmetric HalfRates (delta=0.0155). 297 passed / 22 xfailed (+3 GREEN; mypy strict + ruff clean). REQ-end-to-end-latency GREEN; SPEC §6 acceptance #6 satisfied. Phase 4 (quoting layer) unblocked.
+**Last activity:** 2026-05-11
+**Last activity description:** Phase 04 Plan 00 (test-infrastructure) shipped — Wave-1 RED-stub scaffolding for the entire quoting layer. 13 per-REQ test files (58 xfailed stubs) under tests/quoting/ + tests/sizing/, populated conftest with 5 shared fixtures (make_match_state re-exported, make_market_quote stand-in dataclass, fake_private_key cryptography 2048-bit RSA, fake_kalshi_session aioresponses, tmp_fill_ledger_dir), 9 new Phase 04 constants atomically gated by test_constants.py allow-list (TAKE_THRESHOLD, MM_MIN_EDGE, POST_PLANT_TAKE_THRESHOLD, MIN_HALF_SPREAD, SERIES_AGGREGATE_CAP_FRAC, RELATIVE_BRIER_EDGE_MIN, MIN_FILLS_PER_MATCH, KALSHI_BASE_URL, KALSHI_WS_URL), 5 new declared deps (cryptography>=42 + websockets>=12 + python-dotenv>=1 + Rule-3 unpinning of async-lru and oauthlib after uv sync surfaced a silent Phase 03 regression), mypy strict overrides extended to src.quoting.* + src.sizing.* in pyproject.toml. 306 passed / 80 xfailed (22 Phase 03 baseline + 58 new Phase 04 stubs); mypy strict clean across src/state/ + src/pricing/ + src/quoting/ + src/sizing/.
 
 ---
 
@@ -34,20 +34,20 @@ progress:
 
 ## Current Position
 
-Phase: 04 (quoting-layer) — PLANNING (no plans yet)
-Plan: 0 of TBD
+Phase: 04 (quoting-layer) — IN PROGRESS (Wave 1 complete)
+Plan: 1 of 9
 
 - **Current phase:** 04
-- **Current plan:** 0 of TBD (no plans yet — phase needs /gsd-spec-phase or /gsd-discuss-phase to begin)
-- **Status:** planning
-- **Progress:** [██████████] 100% (Phases 0-3 complete; Phase 4+ unstarted)
+- **Current plan:** 1 of 9 (04-00 test-infrastructure shipped; next: 04-01 kalshi-order-manager)
+- **Status:** in-progress
+- **Progress:** [████████░░] 76% (25/33 plans; Phases 0-3 + 04-00 complete)
 
 ```
 Phase 0  [##########] Complete (3/3 plans)
 Phase 1  [##########] Complete (7/7 plans)
 Phase 2  [##########] Complete (5/5 plans)
 Phase 3  [##########] Complete (9/9 plans)
-Phase 4  [          ] Planning
+Phase 4  [#.........] In Progress (1/9 plans)
 Phase 5  [          ] Pending
 Phase 6  [          ] Pending
 Phase 7  [          ] Pending
@@ -61,7 +61,7 @@ Phase 7  [          ] Pending
 | 1 — Core pricing engine | Complete | 7 (01-01..01-07) | 7 |
 | 2 — Round-event data | Complete (2026-05-01) | 5 (02-01..02-05) | 5 |
 | 3 — Live ingestion layer | Complete (2026-05-09) | 9 (03-00..03-08) | 9 |
-| 4 — Quoting layer | Planning | none | — |
+| 4 — Quoting layer | In Progress | 9 (04-00..04-08) | 1 |
 | 5 — Validation | Pending | none | — |
 | 6 — Deployment | Pending | none | — |
 | 7 — Operational maturity | Pending | none | — |
@@ -85,6 +85,7 @@ Phase 7  [          ] Pending
 | Phase 03 P06 | 8 min, 2 tasks, 5 files | Twitter v2 text listener (REQ-text-listener / D-07): tweepy.asynchronous.AsyncStreamingClient subclass + score-signal regex + degrade-to-no-op env gate + soft-confirm-only contract via arbiter.score_changes (>=2-source rule blocks Twitter-alone commits); 9-rule TWITTER_RULE_SET. 287 passed / 26 xfailed (3 GREEN, up from 284/29). |
 | Phase 03 P07 | ~6h 45m wall-clock (~70 min active code; ~5h 35m blocking on rib.gg scrape), 3 tasks, 13 files | ETL re-run + v2 calibration (REQ-round-conclusion-lookup, D-07/D-08/D-09/D-10): scripts/probe_round_events_v2.py augments Phase 2 ETL with a_alive/b_alive persisted + requests-cache filesystem backend + per-match SAVEPOINT transactions; scripts/calibrate_round_conclusion_v2.py top-down Bayesian shrinkage walk. Atomic-replaced models/round_conclusion.json (806 KB) with 5736/854/72/36 cells across 4 tiers from 24500 bomb-planted samples / 1000 logical match_ids / 42370 perspective-doubled rounds. side_baseline {atk: 0.5299, def: 0.4701} converges within 0.005 of Phase 2 v1. 294 passed / 25 xfailed (+7 GREEN; v1 calibrator + v1 synthesize_states tests collapse to permanent xfails). |
 | Phase 03 P08 | ~10 min, 2 tasks, 3 files | Synthetic E2E gate (REQ-end-to-end-latency / SPEC §6 acceptance): tests/ingestion/test_e2e.py composes Arbiter + LiveTheoEngine through 30+ events end-to-end via PendingEvent injection (no real network / OCR / tweepy). 3 GREEN tests: test_e2e_latency_p50 (seq_id strictly monotonic + 6-stage timestamps populated + p50 t_ingested → t_state_committed < 500ms over 30 score_change events), test_bomb_detect_p50 (bomb_plant p50 < 100ms over 30 events; Phase 3's 100ms piece of PRD's 200ms bomb-detect → quote-pull budget), test_post_plant_non_degenerate (post-plant theo shift |theo_bomb - theo_baseline| ≥ 1¢ on injected synthetic cell at (3, 2, 0, atk, Lotus); measured delta=0.0155 with TeamA-at-0.55 asymmetric HalfRates breaking DP symmetry). Synthetic harness latency math is structurally trivial (sub-ms) per RESEARCH Pitfall 3 — the test verifies the INSTRUMENTATION captures the right numbers; production gate is Phase 5 paper-trade. 297 passed / 22 xfailed (+3 GREEN); mypy strict + ruff clean. |
+| Phase 04 P00 | 7 min, 2 tasks, 21 files (16 created + 5 modified) | Wave-1 RED-stub scaffolding for entire quoting layer: 13 per-REQ test files (58 xfailed stubs) + 2 __init__.py + populated conftest with 5 fixtures (make_match_state re-export, make_market_quote stand-in dataclass, fake_private_key cryptography 2048-bit RSA, fake_kalshi_session aioresponses, tmp_fill_ledger_dir); 9 new Phase 04 constants (TAKE_THRESHOLD, MM_MIN_EDGE, POST_PLANT_TAKE_THRESHOLD, MIN_HALF_SPREAD, SERIES_AGGREGATE_CAP_FRAC, RELATIVE_BRIER_EDGE_MIN, MIN_FILLS_PER_MATCH, KALSHI_BASE_URL, KALSHI_WS_URL) atomically gated by test_constants.py allow-list (Phase 03 D-08 prophylactic); 5 new deps (cryptography>=42 + websockets>=12 + python-dotenv>=1 + Rule-3 unpinning of async-lru and oauthlib after uv sync uninstalled async-lru, blocking tweepy.asynchronous import); [[tool.mypy.overrides]] strict blocks for src.quoting.* + src.sizing.*; data/fills/ glob-then-allow-list .gitignore pattern. 306 passed / 80 xfailed (22 Phase 03 baseline + 58 new Phase 04 stubs); mypy strict clean. |
 
 ## Accumulated Context
 
@@ -132,6 +133,15 @@ Phase 7  [          ] Pending
 - **2026-05-10 — `.gitignore` directory pattern flip for Phase 3 directories.** The bare `data/ribgg_cache/` directory pattern blocks `!data/ribgg_cache/.gitkeep` from un-ignoring (Git PATTERN FORMAT — "two consequences" caveat). Switching to glob form `data/ribgg_cache/*` per parent dir + explicit allow-list lines keeps the contents excluded while permitting the marker. Same fix applied to data/event_log/ and data/metrics/.
 - **2026-05-10 — Sample density vs SPEC §7 1c gate: smoke (3,2,8,atk,Lotus) cell shrunk_p≈0.527 lands near the DP's between-round inference.** Calibrator shipped 52 samples on that cell; happens to be near the population mean. Lopsided cells (5v1: +1.18¢; 1v5: -2.93¢) shift theo by 1-3¢ as expected, confirming the dispatch path is structurally active. Phase 5 calibration loop will refine sparse cells; 03-08 E2E gate uses asymmetric states with stronger signal per VALIDATION.md.
 
+#### Phase 04
+
+- **2026-05-11 — RED-stub xfail body pattern carried forward verbatim from Phase 03 D-01.** Every Phase 04 stub function calls `pytest.xfail("Plan 04-NN — ...")` inside its body — NOT `@pytest.mark.xfail` decorator. Wave-N executors flip stubs by replacing the function body in one edit; decorator removal would leave dead xfail-call lines.
+- **2026-05-11 — Phase 04 constants land as a SINGLE atomic commit alongside their test_constants.py allow-list extension** (Phase 03 D-08 same-commit Rule-3 prophylactic carry-forward). Splitting across commits would leave CI red between them.
+- **2026-05-11 — mypy strict block extension for src.quoting.* AND src.sizing.* added at the `pyproject.toml` level**, not via CLI override. RESEARCH Pitfall 7 carry-forward: CI runs strict only if the override is declared at TOML level. CLI-only invocations would let CI ship loose strictness silently.
+- **2026-05-11 — Stand-in `_StubMarketQuote` dataclass in tests/quoting/conftest.py.** Lets Phase 04 tests be written BEFORE plan 04-01 ships the real `src/quoting/market_data.py`. Wave 2+ swaps the import in-place when the real type lands.
+- **2026-05-11 — `async-lru` and `oauthlib` unpinned explicitly in `[project].dependencies` (Rule-3 deviation auto-fixed).** tweepy.asynchronous lazily imports both at module load (`raise TweepyException(...)` else); previous environments had them as undeclared transitives that `uv sync` removed during Plan 04-00 Task 2. Pinning makes the install reproducible across machines.
+- **2026-05-11 — `VEGA_DIRECTIONAL_THRESHOLD` NOT deleted in Plan 04-00.** Its deletion is atomic with the mode-selector implementation in Plan 04-04, along with its tests/config allow-list removal. Deleting now would leave the mode-selector codepath dangling at HEAD~N.
+
 ### Recent decisions (cross-phase)
 
 22 locked decisions inherited from `prd.md` + `roadmap.md` via synthesizer. See `.planning/PROJECT.md` for full text. Highlights:
@@ -176,7 +186,7 @@ None.
 
 ## Session Continuity
 
-- **Last session ended:** 2026-05-09 — Phase 03 Plan 08 (e2e-gate) shipped, closing out Phase 3. Commit: `91191bb` (Task 1: test — tests/ingestion/test_e2e.py, 3 GREEN E2E tests covering REQ-end-to-end-latency / SPEC §6 acceptance) + Task 2 metadata commit (this STATE.md + ROADMAP.md update + 03-08 SUMMARY.md). Phase 3 complete: 9 plans / 9 SUMMARYs / full ingestion stack live (MatchState v2 + arbiter + scoreboard + OCR + text listener + post-plant calibration + E2E gate).
-- **Stopped at:** Phase 03 complete (live ingestion layer shipped)
-- **Next action:** Phase 04 (quoting layer) needs spec/discuss → plan → execute. Per roadmap.md §4 (rescoped v2), the phase covers KalshiOrderManager + three-way mode selector + MM_BETWEEN_ROUND/DIRECTIONAL_TAKE/POST_PLANT_QUOTE/IDLE + portfolio-aware Kelly (per-market + per-series aggregate cap) + four kill switches (Kalshi API errors / ingestion staleness > 5s / |theo − market| > 20¢ / rolling Brier > 0.30 over 50 rounds) + order reconciliation. Phase 4 is unblocked by Phase 3's MatchState + arbiter + post-plant lookup. Recommended next command: `/gsd-spec-phase 04`.
-- **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs. Constraint detail in `.planning/intel/constraints.md`. Phase 3 implementation decisions in `.planning/phases/03-live-ingestion-layer/03-CONTEXT.md` (D-01 through D-14). Phase 4 will start a new CONTEXT/SPEC cycle.
+- **Last session ended:** 2026-05-11 — Phase 04 Plan 00 (test-infrastructure) shipped. Commits: `019a596` (chore — pyproject.toml + 9 constants + mypy overrides + .gitignore + test_constants.py allow-list) and `070380f` (test — 13 RED-stub test files + 2 __init__.py + tests/quoting/conftest.py + Rule-3 async-lru/oauthlib unpin). 16 files created + 5 modified. 306 passed / 80 xfailed; mypy strict clean across src/state/ + src/pricing/ + src/quoting/ + src/sizing/.
+- **Stopped at:** Completed 04-00-test-infrastructure-PLAN.md
+- **Next action:** Phase 04 Plan 01 (kalshi-order-manager) — implements REQ-kalshi-order-manager + REQ-order-lifecycle-reconciliation. Drops GREEN tests into pre-existing `tests/quoting/test_kalshi_auth.py`, `test_order_manager.py`, `test_market_data.py`, `test_reconciliation.py` files laid by Plan 04-00; introduces `src/quoting/kalshi_auth.py` (RSA-PSS sign_request), `src/quoting/order_manager.py` (KalshiOrderManager with dry-run, error_streak, reconcile_once), `src/quoting/market_data.py` (MarketQuote dataclass + WS subscribe). Recommended next command: `/gsd:execute-phase 04`.
+- **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs. Constraint detail in `.planning/intel/constraints.md`. Phase 3 implementation decisions in `.planning/phases/03-live-ingestion-layer/03-CONTEXT.md`. Phase 4 RESEARCH/VALIDATION at `.planning/phases/04-quoting-layer/04-RESEARCH.md` + `04-VALIDATION.md`.
