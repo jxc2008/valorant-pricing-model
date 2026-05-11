@@ -26,6 +26,7 @@ from src.quoting.market_data import (
     SyntheticMarketData,
     make_quote,
 )
+from src.quoting.mm_quoter import compute_half_spread, quote_mm_between_round
 from src.quoting.mode_selector import TradingMode, trading_mode
 from src.quoting.order_manager import KalshiOrderManager, Quote, StrategyId
 from src.quoting.portfolio import PortfolioState
@@ -43,6 +44,7 @@ __all__ = [
     "SyntheticMarketData",
     "TradingMode",
     "append_fill",
+    "compute_half_spread",
     "kill_switch_api_error",
     "kill_switch_brier",
     "kill_switch_deviation",
@@ -51,6 +53,7 @@ __all__ = [
     "load_private_key",
     "make_quote",
     "maybe_record_mm_fill",
+    "quote_mm_between_round",
     "sign_request",
     "simulate_touched",
     "trading_mode",
