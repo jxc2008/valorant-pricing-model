@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 04
-current_plan: 2 of 9
+current_plan: 3 of 9
 status: in-progress
-stopped_at: Completed 04-01-kalshi-order-manager-PLAN.md
-last_updated: "2026-05-11T19:49:47Z"
+stopped_at: Completed 04-02-portfolio-kelly-PLAN.md
+last_updated: "2026-05-11T19:59:15.476Z"
 last_activity: 2026-05-11
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 33
-  completed_plans: 26
-  percent: 79
+  completed_plans: 27
+  percent: 82
 ---
 
 # STATE — Valorant Live Pricing Model
 
 **Project:** Valorant Live Pricing Model
 **Last activity:** 2026-05-11
-**Last activity description:** Phase 04 Plan 01 (kalshi-order-manager) shipped — REQ-kalshi-order-manager Wave-2 GREEN promotion. Hand-rolled RSA-PSS signer (~50 lines; padding.PSS(MGF1(SHA256), salt_length=PSS.DIGEST_LENGTH) verified against docs.kalshi.com 2026-05-09) + KalshiOrderManager async REST plumbing (place_quote / cancel_quote / cancel_all_orders using /portfolio/orders/batched per RESEARCH Pattern 2 rate-budget; dry_run wrapper as single source of truth per DEC-022 / CLAUDE.md rule 13; error_streak counter feeding kill_switch_api_error; Quote.strategy_id v2 field for DEC-020 fill-ledger routing) + MarketQuote dataclass (frozen+slots) + MarketDataSource Protocol (runtime_checkable) with two implementations (SyntheticMarketData default for dry-run/tests; KalshiWsMarketData skeleton — dry_run=True returns, dry_run=False raises NotImplementedError pending Phase 6 deployment work) + mark_invalid Pitfall 7 mitigation on WS disconnect + scripts/kalshi_auth_smoke.py operator-gated GET /exchange/status verifier (exit 0 on 200, exit 1 on missing .env, exit 2 on non-200; .env-missing path verified locally). ATOMIC CLAUDE.md correction shipped in same commit as kalshi_auth.py: `RSA PKCS1v15/SHA-256 auth` → `RSA-PSS / SHA-256 auth (verified docs.kalshi.com 2026-05-09)` — splitting would have left HEAD with contradicting authoritative doc. 326 passed / 70 xfailed (+20 GREEN, -10 xfailed from 04-00 baseline 306/80); mypy --strict clean across src/quoting/ (4 files).
+**Last activity description:** Phase 04 Plan 02 (portfolio-kelly) shipped — REQ-kelly-sizer Wave-2 GREEN promotion. Pure `kelly_size(theo, market_yes_ask, bankroll, series_id, current_series_exposure)` in `src/sizing/kelly.py` implementing DEC-023 v2 verbatim formula: `f = max(0, KELLY_MULTIPLIER * f_full)` → `f = min(f, PER_MARKET_CAP_FRAC=0.05)` → `f = min(f, max(0, SERIES_AGGREGATE_CAP_FRAC=0.10 - exposure[series_id]))`. Returns 0 if any cap binds OR if ask boundary degenerate (ask<=0 / ask>=100) OR bankroll<=0 OR negative-edge (`theo <= ask/100`). v1 single-market compat preserved when `exposure == {}`. Function is PURE — never mutates the snapshot dict (verified by unit + hypothesis property tests). Mutable `PortfolioState` registry in `src/quoting/portfolio.py` owns the dict and exposes the Pitfall 5 mitigation surface: `on_place(series_id, fraction)` increments (rejects negatives), `on_settle(series_id, fraction)` decrements clipped at 0.0 (rejects negatives; clip protects against double-settlement bugs), `snapshot()` returns a fresh dict copy (enforces pure-function contract from BOTH ends), `current(series_id)` returns 0.0 for unknown. The on_place / on_settle pair is grep-discoverable so plan 04-08 reconciliation knows where to wire the round-resolution callback (RESEARCH §"Common Pitfalls" #5: if on_settle is never called, exposure monotonically grows and kelly_size returns 0 forever after the first few placements). Tests: 30 new GREEN (17 kelly = 13 unit + 4 hypothesis property tests covering REQ-kelly-sizer acceptance criteria; 13 portfolio_state unit tests covering Pitfall 5 mitigation surface). 356 passed / 63 xfailed (+30 GREEN, -7 xfailed from 04-01 baseline 326/70; 0 regressions); mypy --strict clean across src/sizing/ (2 files) + src/quoting/ (5 files, +1 portfolio.py).
 
 ---
 
@@ -35,19 +35,19 @@ progress:
 ## Current Position
 
 Phase: 04 (quoting-layer) — IN PROGRESS (Wave 2 in progress)
-Plan: 2 of 9
+Plan: 3 of 9
 
 - **Current phase:** 04
-- **Current plan:** 2 of 9 (04-00 test-infrastructure + 04-01 kalshi-order-manager shipped; next: 04-02 portfolio-kelly)
+- **Current plan:** 3 of 9 (04-00 + 04-01 + 04-02 shipped; next: 04-03 kill-switches — Wave 2 sibling, parallelizable)
 - **Status:** in-progress
-- **Progress:** [████████░░] 79% (26/33 plans; Phases 0-3 + 04-00 + 04-01 complete)
+- **Progress:** [████████░░] 82%
 
 ```
 Phase 0  [##########] Complete (3/3 plans)
 Phase 1  [##########] Complete (7/7 plans)
 Phase 2  [##########] Complete (5/5 plans)
 Phase 3  [##########] Complete (9/9 plans)
-Phase 4  [##........] In Progress (2/9 plans)
+Phase 4  [###.......] In Progress (3/9 plans)
 Phase 5  [          ] Pending
 Phase 6  [          ] Pending
 Phase 7  [          ] Pending
@@ -61,7 +61,7 @@ Phase 7  [          ] Pending
 | 1 — Core pricing engine | Complete | 7 (01-01..01-07) | 7 |
 | 2 — Round-event data | Complete (2026-05-01) | 5 (02-01..02-05) | 5 |
 | 3 — Live ingestion layer | Complete (2026-05-09) | 9 (03-00..03-08) | 9 |
-| 4 — Quoting layer | In Progress | 9 (04-00..04-08) | 2 |
+| 4 — Quoting layer | In Progress | 9 (04-00..04-08) | 3 |
 | 5 — Validation | Pending | none | — |
 | 6 — Deployment | Pending | none | — |
 | 7 — Operational maturity | Pending | none | — |
@@ -87,6 +87,7 @@ Phase 7  [          ] Pending
 | Phase 03 P08 | ~10 min, 2 tasks, 3 files | Synthetic E2E gate (REQ-end-to-end-latency / SPEC §6 acceptance): tests/ingestion/test_e2e.py composes Arbiter + LiveTheoEngine through 30+ events end-to-end via PendingEvent injection (no real network / OCR / tweepy). 3 GREEN tests: test_e2e_latency_p50 (seq_id strictly monotonic + 6-stage timestamps populated + p50 t_ingested → t_state_committed < 500ms over 30 score_change events), test_bomb_detect_p50 (bomb_plant p50 < 100ms over 30 events; Phase 3's 100ms piece of PRD's 200ms bomb-detect → quote-pull budget), test_post_plant_non_degenerate (post-plant theo shift |theo_bomb - theo_baseline| ≥ 1¢ on injected synthetic cell at (3, 2, 0, atk, Lotus); measured delta=0.0155 with TeamA-at-0.55 asymmetric HalfRates breaking DP symmetry). Synthetic harness latency math is structurally trivial (sub-ms) per RESEARCH Pitfall 3 — the test verifies the INSTRUMENTATION captures the right numbers; production gate is Phase 5 paper-trade. 297 passed / 22 xfailed (+3 GREEN); mypy strict + ruff clean. |
 | Phase 04 P00 | 7 min, 2 tasks, 21 files (16 created + 5 modified) | Wave-1 RED-stub scaffolding for entire quoting layer: 13 per-REQ test files (58 xfailed stubs) + 2 __init__.py + populated conftest with 5 fixtures (make_match_state re-export, make_market_quote stand-in dataclass, fake_private_key cryptography 2048-bit RSA, fake_kalshi_session aioresponses, tmp_fill_ledger_dir); 9 new Phase 04 constants (TAKE_THRESHOLD, MM_MIN_EDGE, POST_PLANT_TAKE_THRESHOLD, MIN_HALF_SPREAD, SERIES_AGGREGATE_CAP_FRAC, RELATIVE_BRIER_EDGE_MIN, MIN_FILLS_PER_MATCH, KALSHI_BASE_URL, KALSHI_WS_URL) atomically gated by test_constants.py allow-list (Phase 03 D-08 prophylactic); 5 new deps (cryptography>=42 + websockets>=12 + python-dotenv>=1 + Rule-3 unpinning of async-lru and oauthlib after uv sync uninstalled async-lru, blocking tweepy.asynchronous import); [[tool.mypy.overrides]] strict blocks for src.quoting.* + src.sizing.*; data/fills/ glob-then-allow-list .gitignore pattern. 306 passed / 80 xfailed (22 Phase 03 baseline + 58 new Phase 04 stubs); mypy strict clean. |
 | Phase 04 P01 | 14 min, 3 tasks, 9 files (4 created + 5 modified) | REQ-kalshi-order-manager Wave-2 GREEN. Hand-rolled RSA-PSS signer (~50 lines; padding.PSS(MGF1(SHA256), salt_length=PSS.DIGEST_LENGTH) verified docs.kalshi.com 2026-05-09; defensive `assert '?' not in path` for Pitfall 1) + KalshiOrderManager async REST plumbing (place_quote/cancel_quote/cancel_all_orders; /portfolio/orders/batched 2 tokens/order; dry_run constructor arg as single source of truth per DEC-022/CLAUDE.md rule 13; error_streak feeds kill_switch_api_error; Quote.strategy_id v2 field for DEC-020 fill-ledger routing) + MarketQuote (frozen+slots) + MarketDataSource Protocol (runtime_checkable) with SyntheticMarketData (default for dry-run/tests) + KalshiWsMarketData skeleton (dry_run=True returns; dry_run=False raises NotImplementedError pending Phase 6 deployment work) + mark_invalid Pitfall 7 mitigation + scripts/kalshi_auth_smoke.py operator-gated GET /exchange/status (exit codes 0/1/2; .env-missing path verified locally) + ATOMIC CLAUDE.md correction (PKCS1v15→RSA-PSS in same commit as kalshi_auth.py). 326 passed / 70 xfailed (+20 GREEN from 306/80 baseline; 0 regressions); mypy --strict src/quoting/ clean (4 source files). |
+| Phase 04 P02 | 4 min, 2 tasks, 6 files (3 created + 3 modified) | REQ-kelly-sizer Wave-2 GREEN. Pure `kelly_size(theo, market_yes_ask, bankroll, series_id, current_series_exposure)` in src/sizing/kelly.py implementing DEC-023 v2 verbatim three-cap formula (half-Kelly → per-market 0.05 → headroom = aggregate 0.10 − exposure[s]); preserves v1 single-market compat when exposure=={}. Mutable PortfolioState registry in src/quoting/portfolio.py with on_place / on_settle / snapshot / current methods — Pitfall 5 mitigation surface (RESEARCH §"Common Pitfalls" #5: on_settle clips at 0.0 against double-settlement bugs; grep-discoverable name so plan 04-08 reconciliation can wire round-resolution callback). 30 new GREEN tests: 17 kelly (13 unit + 4 hypothesis property tests over full input domain covering never-full-Kelly invariant, aggregate-cap-binding at exposure ≥ 0.10, non-negative-integer, no-mutation-of-snapshot) + 13 portfolio_state unit tests (empty / monotonic accumulation / independent series / settlement decrement / double-settlement clipping / snapshot copy semantics / negative-fraction ValueError guards / full place→settle lifecycle). 356 passed / 63 xfailed (+30 GREEN, -7 xfailed from 04-01 baseline 326/70; 0 regressions); mypy --strict src/sizing/ (2 files) + src/quoting/ (5 files, +1 portfolio.py) clean. Integration smoke verified: `ps.on_place('s', 0.05); kelly_size(0.6, 50, 100000, 's', ps.snapshot()) → 100`. |
 
 ## Accumulated Context
 
@@ -150,6 +151,13 @@ Phase 7  [          ] Pending
 - **2026-05-11 — KalshiOrderManager takes caller-supplied `aiohttp.ClientSession`** (Plan 04-01). Single session reused across order manager + market-data WS + reconciliation pollers (Phase 6) rather than per-class session. Constructor signature also makes test setup obvious — pytest scopes the session to per-test.
 - **2026-05-11 — Defensive `assert "?" not in path` in sign_request guards Pitfall 1 at the single signer module** (Plan 04-01). Every Kalshi REST/WS call routes through `sign_request` and so inherits the guard. Path-with-query-string is the #1 documented Kalshi auth failure mode.
 - **2026-05-11 — /portfolio/orders/batched for cancel_all_orders (live path)** (Plan 04-01 / RESEARCH §"Pattern 2"). 2 tokens/order vs 10/order for individual DELETEs = 5× rate-budget improvement; critical when a kill switch cancels 5-10 simultaneous quotes during a fast-moving series.
+- **2026-05-11 — Pure-function sizer + mutable-state registry split** (Plan 04-02 / DEC-023 v2). `src/sizing/kelly.kelly_size` is pure (no I/O, no state, takes snapshot dict it never mutates); `src/quoting/portfolio.PortfolioState` owns the mutable dict and exposes `on_place`/`on_settle`/`snapshot`. Mirrors Phase 03's pure-`with_update` + module-level-`commit/quarantine` split — math layer stays `mypy --strict` clean, mutation layer is auditable.
+- **2026-05-11 — `PortfolioState.on_settle` clips at 0.0 (does NOT raise)** (Plan 04-02 / Pitfall 5 mitigation). Protects against double-settlement bugs (resolution event delivered twice). Exposure should never go negative under any real-world placement+settlement sequence; clipping degrades gracefully rather than crashing the quoter loop.
+- **2026-05-11 — Both `on_place` AND `on_settle` reject negative fractions via `ValueError`** (Plan 04-02). Placements always increase exposure; settlements always decrement. Negative fraction = caller programming error (sign flip), NOT a data condition — hard-fail surfaces the bug at the call site.
+- **2026-05-11 — `snapshot()` returns a FRESH dict copy each call** (Plan 04-02). Combined with the pure-function contract on `kelly_size`, immutability is enforceable from BOTH ends: sizer doesn't mutate the dict it gets; registry doesn't share the dict it returns.
+- **2026-05-11 — Three-cap composition order verbatim from DEC-023 v2** (Plan 04-02): `max(0, half-Kelly)` → `min(per-market 0.05)` → `min(headroom = 0.10 - exposure[s])`. Reordering would change which constraint binds and break v1 single-market compat when `exposure == {}` (REQ-kelly-sizer acceptance criterion #1).
+- **2026-05-11 — Boundary guards return 0 (do NOT raise) for ask / bankroll degenerate values** (Plan 04-02). The quoter loop reads `market_yes_ask` straight from `MarketQuote` (Plan 04-01 surface) which can be stale-zero on WS disconnect (Pitfall 7). Raising would crash the loop; returning 0 silently no-ops the placement — same behavior as a negative-edge input.
+- **2026-05-11 — +1 tolerance in `test_never_full_kelly` hypothesis property** (Plan 04-02). `int()` floor rounding can differ by 1 between the formula computation in the test and the actual implementation when `f * bankroll / ask` lands within ε of an integer. The half-Kelly upper bound is the conceptual invariant; +1 is the implementation-detail floor parity tolerance.
 
 ### Recent decisions (cross-phase)
 
@@ -195,7 +203,7 @@ None.
 
 ## Session Continuity
 
-- **Last session ended:** 2026-05-11 — Phase 04 Plan 01 (kalshi-order-manager) shipped. Commits: `4bb87b6` (feat — RSA-PSS Kalshi auth signer + atomic CLAUDE.md PKCS1v15→RSA-PSS correction), `b82d048` (feat — MarketQuote + MarketDataSource Protocol with SyntheticMarketData default + KalshiWsMarketData skeleton + mark_invalid Pitfall 7 mitigation), `13e1c2e` (feat — KalshiOrderManager async REST plumbing + /portfolio/orders/batched cancel_all + Quote.strategy_id v2 field + scripts/kalshi_auth_smoke.py operator-gate-2 verifier + CLAUDE.md Run-commands entry). 4 files created + 5 modified. 326 passed / 70 xfailed (+20 GREEN, 0 regressions); mypy --strict src/quoting/ clean. Operator gate 2 (Kalshi auth smoke test): script ships and is runnable; .env-missing error path verified locally (exit 1); .env-present success path is operator-only and tracked as `TODO(operator)` in 04-01 SUMMARY.
-- **Stopped at:** Completed 04-01-kalshi-order-manager-PLAN.md
-- **Next action:** Phase 04 Plan 02 (portfolio-kelly) — implements REQ-kelly-sizer (DEC-023 v2 portfolio Kelly: half-Kelly × per-market cap × per-series aggregate cap). Independent of `src/quoting/` so can run before/after 04-03 kill-switches in parallel. Drops GREEN tests into `tests/sizing/test_kelly_portfolio.py` (7 RED stubs from Plan 04-00); introduces `src/sizing/kelly.py`. Recommended next command: `/gsd:execute-phase 04`.
-- **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs. Constraint detail in `.planning/intel/constraints.md`. Phase 3 implementation decisions in `.planning/phases/03-live-ingestion-layer/03-CONTEXT.md`. Phase 4 RESEARCH/VALIDATION at `.planning/phases/04-quoting-layer/04-RESEARCH.md` + `04-VALIDATION.md`. Phase 4 Plan 01 (this plan) docstring decisions at `.planning/phases/04-quoting-layer/04-01-kalshi-order-manager-SUMMARY.md`.
+- **Last session ended:** 2026-05-11 — Phase 04 Plan 02 (portfolio-kelly) shipped. Commits: `77362a9` (feat — pure `kelly_size` DEC-023 v2 verbatim formula in `src/sizing/kelly.py` + 17 GREEN tests including 4 hypothesis property tests covering REQ-kelly-sizer acceptance criteria), `731a013` (feat — `PortfolioState` per-series exposure registry in `src/quoting/portfolio.py` with `on_place`/`on_settle`/`snapshot`/`current` — Pitfall 5 mitigation surface; 13 GREEN unit tests). 3 files created (kelly.py, portfolio.py, test_portfolio_state.py) + 3 modified (sizing/__init__.py, quoting/__init__.py adding PortfolioState export, test_kelly_portfolio.py flipped from 7 RED stubs to 17 GREEN). 356 passed / 63 xfailed (+30 GREEN, -7 xfailed; 0 regressions); mypy --strict clean across src/sizing/ (2 files) + src/quoting/ (5 files, +1 portfolio.py). Integration smoke verified: `from src.sizing import kelly_size; from src.quoting import PortfolioState; ps=PortfolioState(); ps.on_place('s', 0.05); kelly_size(0.6, 50, 100000, 's', ps.snapshot()) → 100`.
+- **Stopped at:** Completed 04-02-portfolio-kelly-PLAN.md
+- **Next action:** Phase 04 Plan 03 (kill-switches) — implements REQ-kill-switches (DEC-005: four pure predicates over (state, theo, market, recent_briers); cancel-all on any trip). Wave 2 sibling of 04-02 (independent of `src/sizing/`); parallelizable. Drops GREEN tests into existing `tests/quoting/test_kill_switches.py` RED stubs from Plan 04-00. Recommended next command: `/gsd:execute-phase 04`.
+- **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs. Constraint detail in `.planning/intel/constraints.md`. Phase 3 implementation decisions in `.planning/phases/03-live-ingestion-layer/03-CONTEXT.md`. Phase 4 RESEARCH/VALIDATION at `.planning/phases/04-quoting-layer/04-RESEARCH.md` + `04-VALIDATION.md`. Phase 4 Plan 01 + 02 docstring decisions at `.planning/phases/04-quoting-layer/04-01-kalshi-order-manager-SUMMARY.md` + `04-02-portfolio-kelly-SUMMARY.md`.

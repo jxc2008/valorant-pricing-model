@@ -215,7 +215,7 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
   3. **Take or quote**: take if `|theo − market| > POST_PLANT_TAKE_THRESHOLD` (narrower than between-round take); otherwise quote at theo ± narrow spread (high-conviction state).
 - **Acceptance:** bomb-detect → quote-pull p50 < 200 ms; re-price uses post-plant lookup, not between-round path.
 
-### REQ-kelly-sizer (PORTFOLIO-AWARE v2)
+### REQ-kelly-sizer (PORTFOLIO-AWARE v2) — **Complete (2026-05-11, plan 04-02)**
 - **Source:** roadmap.md §4.6; prd.md §2.3 (v2 pivot — DEC-023)
 - **Scope:** position sizing — correlation handling
 - **Description:** `kelly_size(theo, market_yes_ask, bankroll, series_id, current_series_exposure) → int contracts`.
