@@ -9,8 +9,10 @@ authors = [
 ]
 dependencies = [
     "aiohttp>=3.13,<4",
+    "async-lru>=2.0",
     "cryptography>=42,<46",
     "numpy>=1.26,<3",
+    "oauthlib>=3.2",
     "opencv-python>=4.10,<5",
     "Pillow>=10.4,<12",
     "pytesseract>=0.3.13,<1",
