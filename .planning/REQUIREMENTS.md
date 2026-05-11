@@ -233,14 +233,15 @@ Phase 0 is "complete" when the constraints above are satisfiable: directory tree
 - **Acceptance:** sizing identical to v1 single-market case (when exposure is 0); aggregate cap kicks in when sum of fractional exposures across the series exceeds `SERIES_AGGREGATE_CAP_FRAC`.
 - **Note:** This is the v1 floor. Full covariance-aware portfolio Kelly is REQ-portfolio-correlation-kelly (Phase 7).
 
-### REQ-kill-switches
+### REQ-kill-switches — **Complete (2026-05-11, plan 04-03)**
 - **Source:** roadmap.md §4.6; prd.md §5.4
 - **Scope:** risk controls
-- **Description:** Four pure predicates over `(state, theo, market, recent_briers)`. Each call cycle, all four evaluated; if ANY trips, all resting quotes cancelled and alert fires. Always-on; no per-switch disable flag (DEC-005). Triggers:
+- **Description:** Four pure predicates over `(state, theo, market, recent_briers)`. Each call cycle, all four evaluated; if ANY trips, all resting quotes cancelled and alert fires. Always-on; no per-switch off-switch flag (DEC-005). Triggers:
   - `KILL_SWITCH_*` API errors / network disconnect
   - Ingestion staleness > `KILL_SWITCH_STALENESS_S` (5.0s)
   - `|theo − market| > KILL_SWITCH_DEVIATION_C` (20¢)
   - Rolling Brier > `KILL_SWITCH_BRIER_BOUND` (0.30) over last `KILL_SWITCH_BRIER_WINDOW` (50) round predictions
+- **Delivered:** Five pure-predicate kill switches in `src/quoting/kill_switches.py` — `kill_switch_staleness` (strict > 5s), `kill_switch_deviation` (strict > 20c), `kill_switch_brier` (window-full AND strict > 0.30; `math.fsum` to avoid IEEE 754 drift), `kill_switch_api_error` (non-strict >= 3 from `reference/market_maker.py:73`), `kill_switch_market_invalid` (Pitfall 7 WS reconnect — 5th predicate beyond DEC-005 baseline). `KillSwitchAggregator.any_tripped()` returns `(bool, sorted_names)`. 18 GREEN unit tests cover trip + non-trip boundary per predicate plus 5 aggregator semantics tests.
 
 ### REQ-order-lifecycle-reconciliation
 - **Source:** roadmap.md §4.7

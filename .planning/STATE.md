@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 04
-current_plan: 3 of 9
+current_plan: "4 of 9 (04-00..04-03 shipped; next: 04-04 mode-selector — Wave 3, depends on 04-03 kill-switch surface)"
 status: in-progress
-stopped_at: Completed 04-02-portfolio-kelly-PLAN.md
-last_updated: "2026-05-11T19:59:15.476Z"
+stopped_at: Completed 04-03-kill-switches-PLAN.md
+last_updated: "2026-05-11T20:09:00.216Z"
 last_activity: 2026-05-11
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 33
-  completed_plans: 27
-  percent: 82
+  completed_plans: 28
+  percent: 85
 ---
 
 # STATE — Valorant Live Pricing Model
 
 **Project:** Valorant Live Pricing Model
 **Last activity:** 2026-05-11
-**Last activity description:** Phase 04 Plan 02 (portfolio-kelly) shipped — REQ-kelly-sizer Wave-2 GREEN promotion. Pure `kelly_size(theo, market_yes_ask, bankroll, series_id, current_series_exposure)` in `src/sizing/kelly.py` implementing DEC-023 v2 verbatim formula: `f = max(0, KELLY_MULTIPLIER * f_full)` → `f = min(f, PER_MARKET_CAP_FRAC=0.05)` → `f = min(f, max(0, SERIES_AGGREGATE_CAP_FRAC=0.10 - exposure[series_id]))`. Returns 0 if any cap binds OR if ask boundary degenerate (ask<=0 / ask>=100) OR bankroll<=0 OR negative-edge (`theo <= ask/100`). v1 single-market compat preserved when `exposure == {}`. Function is PURE — never mutates the snapshot dict (verified by unit + hypothesis property tests). Mutable `PortfolioState` registry in `src/quoting/portfolio.py` owns the dict and exposes the Pitfall 5 mitigation surface: `on_place(series_id, fraction)` increments (rejects negatives), `on_settle(series_id, fraction)` decrements clipped at 0.0 (rejects negatives; clip protects against double-settlement bugs), `snapshot()` returns a fresh dict copy (enforces pure-function contract from BOTH ends), `current(series_id)` returns 0.0 for unknown. The on_place / on_settle pair is grep-discoverable so plan 04-08 reconciliation knows where to wire the round-resolution callback (RESEARCH §"Common Pitfalls" #5: if on_settle is never called, exposure monotonically grows and kelly_size returns 0 forever after the first few placements). Tests: 30 new GREEN (17 kelly = 13 unit + 4 hypothesis property tests covering REQ-kelly-sizer acceptance criteria; 13 portfolio_state unit tests covering Pitfall 5 mitigation surface). 356 passed / 63 xfailed (+30 GREEN, -7 xfailed from 04-01 baseline 326/70; 0 regressions); mypy --strict clean across src/sizing/ (2 files) + src/quoting/ (5 files, +1 portfolio.py).
+**Last activity description:** Phase 04 Plan 03 (kill-switches) shipped — REQ-kill-switches Wave-2 GREEN promotion. Five pure-predicate kill switches in `src/quoting/kill_switches.py` (4 DEC-005 + 1 Pitfall 7 carry-forward): `kill_switch_staleness` (strict > 5s on `state.last_updated_ts`), `kill_switch_deviation` (strict > 20c on `|round(theo.theo_series * 100) - market.mid|`), `kill_switch_brier` (window-full AND strict > 0.30 mean — uses `math.fsum` Shewchuk pairwise summation to avoid IEEE 754 drift: naive sum of 50 copies of 0.30 yields 0.30000000000000027 which would spuriously trip the boundary), `kill_switch_api_error` (non-strict >= 3 from `reference/market_maker.py:73` `_MAX_ERRORS_BEFORE_PAUSE` salvage; consumes `KalshiOrderManager.error_streak`), `kill_switch_market_invalid` (Pitfall 7 WS reconnect: `not market.is_valid` — mode-selector rule 1 returns IDLE during reconnect gaps). `KillSwitchAggregator` owns `recent_briers: deque(maxlen=KILL_SWITCH_BRIER_WINDOW)` as a PUBLIC attribute so plan 04-08 reconciliation can `agg.recent_briers.append(score)` directly after round resolution (Pitfall 4 contract: only when mode != IDLE — documented in class docstring, NOT enforced by predicate). `.any_tripped(state, theo, market, error_streak)` returns `(bool, sorted_names: list[str])` — sorted name list is deterministic across Python runs (Phase 03 D-08 set-iteration-non-determinism carry-forward). DEC-005 absolute: no per-switch off-switch flag — grep guard `rg "disable_" src/quoting/kill_switches.py` returns no matches (docstring paraphrased "per-switch off-switch flag / per-switch bool knob" to dodge self-tripping the guard; same pattern as Phase 03 plan 03-05). 18 GREEN tests cover trip + non-trip boundary per predicate (staleness 5.01s/5.0s/4.99s; deviation mid=71/70; brier 49-zeros/50×0.30/50×0.40; api_error 3/2/10; market_invalid False/True) plus 5 aggregator semantics tests (empty / single-staleness / multi-trip-sorted / deque-shape / brier-accumulated). 374 passed / 53 xfailed (+18 GREEN, -10 xfailed from 04-02 baseline 356/63; 0 regressions); mypy --strict src/quoting/ clean (6 source files).
 
 ---
 
@@ -34,20 +34,20 @@ progress:
 
 ## Current Position
 
-Phase: 04 (quoting-layer) — IN PROGRESS (Wave 2 in progress)
-Plan: 3 of 9
+Phase: 04 (quoting-layer) — IN PROGRESS (Wave 2 complete; Wave 3 next)
+Plan: 4 of 9
 
 - **Current phase:** 04
-- **Current plan:** 3 of 9 (04-00 + 04-01 + 04-02 shipped; next: 04-03 kill-switches — Wave 2 sibling, parallelizable)
+- **Current plan:** 4 of 9 (04-00..04-03 shipped; next: 04-04 mode-selector — Wave 3, depends on 04-03 kill-switch surface)
 - **Status:** in-progress
-- **Progress:** [████████░░] 82%
+- **Progress:** [█████████░] 85%
 
 ```
 Phase 0  [##########] Complete (3/3 plans)
 Phase 1  [##########] Complete (7/7 plans)
 Phase 2  [##########] Complete (5/5 plans)
 Phase 3  [##########] Complete (9/9 plans)
-Phase 4  [###.......] In Progress (3/9 plans)
+Phase 4  [####......] In Progress (4/9 plans)
 Phase 5  [          ] Pending
 Phase 6  [          ] Pending
 Phase 7  [          ] Pending
@@ -61,7 +61,7 @@ Phase 7  [          ] Pending
 | 1 — Core pricing engine | Complete | 7 (01-01..01-07) | 7 |
 | 2 — Round-event data | Complete (2026-05-01) | 5 (02-01..02-05) | 5 |
 | 3 — Live ingestion layer | Complete (2026-05-09) | 9 (03-00..03-08) | 9 |
-| 4 — Quoting layer | In Progress | 9 (04-00..04-08) | 3 |
+| 4 — Quoting layer | In Progress | 9 (04-00..04-08) | 4 |
 | 5 — Validation | Pending | none | — |
 | 6 — Deployment | Pending | none | — |
 | 7 — Operational maturity | Pending | none | — |
@@ -88,6 +88,7 @@ Phase 7  [          ] Pending
 | Phase 04 P00 | 7 min, 2 tasks, 21 files (16 created + 5 modified) | Wave-1 RED-stub scaffolding for entire quoting layer: 13 per-REQ test files (58 xfailed stubs) + 2 __init__.py + populated conftest with 5 fixtures (make_match_state re-export, make_market_quote stand-in dataclass, fake_private_key cryptography 2048-bit RSA, fake_kalshi_session aioresponses, tmp_fill_ledger_dir); 9 new Phase 04 constants (TAKE_THRESHOLD, MM_MIN_EDGE, POST_PLANT_TAKE_THRESHOLD, MIN_HALF_SPREAD, SERIES_AGGREGATE_CAP_FRAC, RELATIVE_BRIER_EDGE_MIN, MIN_FILLS_PER_MATCH, KALSHI_BASE_URL, KALSHI_WS_URL) atomically gated by test_constants.py allow-list (Phase 03 D-08 prophylactic); 5 new deps (cryptography>=42 + websockets>=12 + python-dotenv>=1 + Rule-3 unpinning of async-lru and oauthlib after uv sync uninstalled async-lru, blocking tweepy.asynchronous import); [[tool.mypy.overrides]] strict blocks for src.quoting.* + src.sizing.*; data/fills/ glob-then-allow-list .gitignore pattern. 306 passed / 80 xfailed (22 Phase 03 baseline + 58 new Phase 04 stubs); mypy strict clean. |
 | Phase 04 P01 | 14 min, 3 tasks, 9 files (4 created + 5 modified) | REQ-kalshi-order-manager Wave-2 GREEN. Hand-rolled RSA-PSS signer (~50 lines; padding.PSS(MGF1(SHA256), salt_length=PSS.DIGEST_LENGTH) verified docs.kalshi.com 2026-05-09; defensive `assert '?' not in path` for Pitfall 1) + KalshiOrderManager async REST plumbing (place_quote/cancel_quote/cancel_all_orders; /portfolio/orders/batched 2 tokens/order; dry_run constructor arg as single source of truth per DEC-022/CLAUDE.md rule 13; error_streak feeds kill_switch_api_error; Quote.strategy_id v2 field for DEC-020 fill-ledger routing) + MarketQuote (frozen+slots) + MarketDataSource Protocol (runtime_checkable) with SyntheticMarketData (default for dry-run/tests) + KalshiWsMarketData skeleton (dry_run=True returns; dry_run=False raises NotImplementedError pending Phase 6 deployment work) + mark_invalid Pitfall 7 mitigation + scripts/kalshi_auth_smoke.py operator-gated GET /exchange/status (exit codes 0/1/2; .env-missing path verified locally) + ATOMIC CLAUDE.md correction (PKCS1v15→RSA-PSS in same commit as kalshi_auth.py). 326 passed / 70 xfailed (+20 GREEN from 306/80 baseline; 0 regressions); mypy --strict src/quoting/ clean (4 source files). |
 | Phase 04 P02 | 4 min, 2 tasks, 6 files (3 created + 3 modified) | REQ-kelly-sizer Wave-2 GREEN. Pure `kelly_size(theo, market_yes_ask, bankroll, series_id, current_series_exposure)` in src/sizing/kelly.py implementing DEC-023 v2 verbatim three-cap formula (half-Kelly → per-market 0.05 → headroom = aggregate 0.10 − exposure[s]); preserves v1 single-market compat when exposure=={}. Mutable PortfolioState registry in src/quoting/portfolio.py with on_place / on_settle / snapshot / current methods — Pitfall 5 mitigation surface (RESEARCH §"Common Pitfalls" #5: on_settle clips at 0.0 against double-settlement bugs; grep-discoverable name so plan 04-08 reconciliation can wire round-resolution callback). 30 new GREEN tests: 17 kelly (13 unit + 4 hypothesis property tests over full input domain covering never-full-Kelly invariant, aggregate-cap-binding at exposure ≥ 0.10, non-negative-integer, no-mutation-of-snapshot) + 13 portfolio_state unit tests (empty / monotonic accumulation / independent series / settlement decrement / double-settlement clipping / snapshot copy semantics / negative-fraction ValueError guards / full place→settle lifecycle). 356 passed / 63 xfailed (+30 GREEN, -7 xfailed from 04-01 baseline 326/70; 0 regressions); mypy --strict src/sizing/ (2 files) + src/quoting/ (5 files, +1 portfolio.py) clean. Integration smoke verified: `ps.on_place('s', 0.05); kelly_size(0.6, 50, 100000, 's', ps.snapshot()) → 100`. |
+| Phase 04 P03 | 5 min, 1 task, 3 files (1 created + 2 modified) | REQ-kill-switches Wave-2 GREEN. Five pure-predicate kill switches in src/quoting/kill_switches.py (4 DEC-005 + 1 Pitfall 7): kill_switch_staleness (strict > 5s), kill_switch_deviation (strict > 20c), kill_switch_brier (window-full AND strict > 0.30; uses math.fsum to avoid IEEE 754 drift on 50×0.30 boundary), kill_switch_api_error (non-strict >= 3 salvage from reference/market_maker.py:73), kill_switch_market_invalid (Pitfall 7 WS reconnect: not market.is_valid). KillSwitchAggregator owns recent_briers: deque(maxlen=KILL_SWITCH_BRIER_WINDOW) as PUBLIC attribute for plan 04-08 reconciliation append (Pitfall 4 contract: only when mode != IDLE — documented in docstring); .any_tripped() returns (bool, sorted_names) for deterministic logging. DEC-005 grep guard verified: `rg "disable_" src/quoting/kill_switches.py` returns no matches (docstring paraphrased to dodge self-trip — Phase 03 D-08 carry-forward). 18 GREEN tests (10 RED stubs replaced): trip + non-trip boundary per predicate + 5 aggregator semantics. 374 passed / 53 xfailed (+18 GREEN, -10 xfailed from 04-02 baseline 356/63; 0 regressions); mypy --strict src/quoting/ clean (6 source files). Auto-fixes: [Rule 1 - Bug] math.fsum for Brier mean (naive sum drifts to 0.30000000000000027 spuriously tripping boundary); [Rule 1 - Bug] docstring paraphrase to keep grep guard clean. |
 
 ## Accumulated Context
 
@@ -158,6 +159,12 @@ Phase 7  [          ] Pending
 - **2026-05-11 — Three-cap composition order verbatim from DEC-023 v2** (Plan 04-02): `max(0, half-Kelly)` → `min(per-market 0.05)` → `min(headroom = 0.10 - exposure[s])`. Reordering would change which constraint binds and break v1 single-market compat when `exposure == {}` (REQ-kelly-sizer acceptance criterion #1).
 - **2026-05-11 — Boundary guards return 0 (do NOT raise) for ask / bankroll degenerate values** (Plan 04-02). The quoter loop reads `market_yes_ask` straight from `MarketQuote` (Plan 04-01 surface) which can be stale-zero on WS disconnect (Pitfall 7). Raising would crash the loop; returning 0 silently no-ops the placement — same behavior as a negative-edge input.
 - **2026-05-11 — +1 tolerance in `test_never_full_kelly` hypothesis property** (Plan 04-02). `int()` floor rounding can differ by 1 between the formula computation in the test and the actual implementation when `f * bankroll / ask` lands within ε of an integer. The half-Kelly upper bound is the conceptual invariant; +1 is the implementation-detail floor parity tolerance.
+- **2026-05-11 — Five-predicate kill-switch design (4 DEC-005 + 1 Pitfall 7)** (Plan 04-03). Each switch is a pure function over its inputs (no shared state, no inheritance). The 5th `kill_switch_market_invalid` ships alongside the DEC-005 baseline because RESEARCH Pitfall 7 (WS reconnect leaves `MarketQuote.is_valid=False`) is implied by PRD §5.4's "stop trading when market data is unreliable" intent — mode-selector rule 1 (plan 04-04) returns IDLE during reconnect gaps via this trip.
+- **2026-05-11 — `math.fsum` for rolling-Brier mean in `kill_switch_brier`** (Plan 04-03 Rule-1 auto-fix). Naive `sum([0.30] * 50)` accumulates to `0.30000000000000027` under CPython 3.11 IEEE 754 — would spuriously trip the strict-inequality boundary contract from CLAUDE.md / PRD §5.4 ("rolling Brier > 0.30"). Shewchuk pairwise summation produces exact rounded result `15.0` → mean `0.30` → `> 0.30` is `False`. Same-commit Rule-1 fix per Phase 03 D-08 prophylactic carry-forward.
+- **2026-05-11 — Strict inequality for staleness/deviation/brier; non-strict `>=` for api_error** (Plan 04-03). Matches PRD §5.4 / CLAUDE.md prose ("staleness > 5s", "|theo - market| > 20¢", "rolling Brier > 0.30") AND the api_error threshold semantic ("trip after this many consecutive errors" — 3 means "the third error trips", salvaged from `reference/market_maker.py:73` `_MAX_ERRORS_BEFORE_PAUSE = 3`). Boundary tests in Plan 04-03 verify each switch's inequality direction explicitly.
+- **2026-05-11 — `KillSwitchAggregator.any_tripped` returns sorted tripped-name list** (Plan 04-03). Phase 03 D-08 carry-forward (set-iteration is non-deterministic under CPython 3.11 randomized hashing). Sorted list keeps log lines / alerts / replay traces stable across Python runs.
+- **2026-05-11 — `recent_briers` is a PUBLIC attribute on `KillSwitchAggregator`** (Plan 04-03). Plan 04-08 reconciliation needs to `agg.recent_briers.append(score)` directly after each round resolution (when mode != IDLE per Pitfall 4 contract — documented in class docstring, not enforced by the predicate). Private-with-getter would be ceremony for no protection benefit.
+- **2026-05-11 — Docstring paraphrase to keep DEC-005 grep guard clean** (Plan 04-03 Rule-1 auto-fix). First-draft module docstring used the literal phrase "do NOT add a `disable_X: bool` knob" to document the DEC-005 prohibition. This self-tripped the success-criterion grep `rg "disable_" src/quoting/kill_switches.py` which must return zero matches. Rewrote as "per-switch off-switch flag / per-switch bool knob" — same prohibition, no forbidden substring. Identical pattern to Phase 03 plan 03-05 (kill_feed / ult_orb cuts).
 
 ### Recent decisions (cross-phase)
 
@@ -203,7 +210,7 @@ None.
 
 ## Session Continuity
 
-- **Last session ended:** 2026-05-11 — Phase 04 Plan 02 (portfolio-kelly) shipped. Commits: `77362a9` (feat — pure `kelly_size` DEC-023 v2 verbatim formula in `src/sizing/kelly.py` + 17 GREEN tests including 4 hypothesis property tests covering REQ-kelly-sizer acceptance criteria), `731a013` (feat — `PortfolioState` per-series exposure registry in `src/quoting/portfolio.py` with `on_place`/`on_settle`/`snapshot`/`current` — Pitfall 5 mitigation surface; 13 GREEN unit tests). 3 files created (kelly.py, portfolio.py, test_portfolio_state.py) + 3 modified (sizing/__init__.py, quoting/__init__.py adding PortfolioState export, test_kelly_portfolio.py flipped from 7 RED stubs to 17 GREEN). 356 passed / 63 xfailed (+30 GREEN, -7 xfailed; 0 regressions); mypy --strict clean across src/sizing/ (2 files) + src/quoting/ (5 files, +1 portfolio.py). Integration smoke verified: `from src.sizing import kelly_size; from src.quoting import PortfolioState; ps=PortfolioState(); ps.on_place('s', 0.05); kelly_size(0.6, 50, 100000, 's', ps.snapshot()) → 100`.
-- **Stopped at:** Completed 04-02-portfolio-kelly-PLAN.md
-- **Next action:** Phase 04 Plan 03 (kill-switches) — implements REQ-kill-switches (DEC-005: four pure predicates over (state, theo, market, recent_briers); cancel-all on any trip). Wave 2 sibling of 04-02 (independent of `src/sizing/`); parallelizable. Drops GREEN tests into existing `tests/quoting/test_kill_switches.py` RED stubs from Plan 04-00. Recommended next command: `/gsd:execute-phase 04`.
-- **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs. Constraint detail in `.planning/intel/constraints.md`. Phase 3 implementation decisions in `.planning/phases/03-live-ingestion-layer/03-CONTEXT.md`. Phase 4 RESEARCH/VALIDATION at `.planning/phases/04-quoting-layer/04-RESEARCH.md` + `04-VALIDATION.md`. Phase 4 Plan 01 + 02 docstring decisions at `.planning/phases/04-quoting-layer/04-01-kalshi-order-manager-SUMMARY.md` + `04-02-portfolio-kelly-SUMMARY.md`.
+- **Last session ended:** 2026-05-11 — Phase 04 Plan 03 (kill-switches) shipped. Commit: `b47f886` (feat — 5 pure-predicate kill switches + KillSwitchAggregator + math.fsum Brier-mean fix + docstring grep-guard paraphrase; 18 GREEN tests replacing 10 RED stubs). 1 file created (`src/quoting/kill_switches.py` ~170 lines) + 2 modified (`src/quoting/__init__.py` adding 6 new exports, `tests/quoting/test_kill_switches.py` 10 RED stubs → 18 GREEN tests). 374 passed / 53 xfailed (+18 GREEN, -10 xfailed from 04-02 baseline 356/63; 0 regressions); mypy --strict src/quoting/ clean (6 source files: kalshi_auth, order_manager, market_data, portfolio, kill_switches, __init__). Grep guards verified: `rg "disable_" src/quoting/kill_switches.py` returns empty (DEC-005 absolute — no per-switch off-switch flag). Integration smoke verified: `from src.quoting import KillSwitchAggregator, kill_switch_staleness, kill_switch_deviation, kill_switch_brier, kill_switch_api_error, kill_switch_market_invalid` resolves cleanly.
+- **Stopped at:** Completed 04-03-kill-switches-PLAN.md
+- **Next action:** Phase 04 Plan 04 (mode-selector) — implements REQ-mode-selector (DEC-001 v2: three-way mode + IDLE selection rules 1-6). Wave 3, depends on 04-03 kill-switch surface (`KillSwitchAggregator.any_tripped()[0]` → kill_switch_active boolean for rule 1) AND 04-01 MarketQuote surface (market.spread for rule 5 MM_MIN_EDGE gate). Drops GREEN tests into pre-existing `tests/quoting/test_mode_selector.py` RED stubs from Plan 04-00 (6 xfailed tests covering rules 1-6 + tie-breaking semantics). Recommended next command: `/gsd:execute-phase 04`.
+- **Cross-phase context lookup:** `.planning/PROJECT.md` `<decisions>` blocks expose all 22 DECs. Constraint detail in `.planning/intel/constraints.md`. Phase 3 implementation decisions in `.planning/phases/03-live-ingestion-layer/03-CONTEXT.md`. Phase 4 RESEARCH/VALIDATION at `.planning/phases/04-quoting-layer/04-RESEARCH.md` + `04-VALIDATION.md`. Phase 4 Plan 01 + 02 + 03 docstring decisions at `.planning/phases/04-quoting-layer/04-01-kalshi-order-manager-SUMMARY.md` + `04-02-portfolio-kelly-SUMMARY.md` + `04-03-kill-switches-SUMMARY.md`.
