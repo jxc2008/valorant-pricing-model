@@ -46,8 +46,8 @@ from src.pricing.data import HalfRates  # noqa: E402
 from src.pricing.live_theo import _within_map_p_a_wins  # noqa: E402
 from src.state.match_state import MatchState  # noqa: E402
 
-HALF_LIVES = [30.0, 60.0, 120.0, 240.0, math.inf]
-K_MAPS = [10.0, 30.0, 90.0, 270.0, 810.0]  # 90 was a boundary optimum in the first run
+HALF_LIVES = [60.0, 120.0, 240.0, math.inf]  # 30 d never ranked top-8 on train in the earlier grid
+K_MAPS = [90.0, 270.0, 810.0, 2430.0, 7290.0]  # grid history: 10-90 (90 boundary), 10-810 (810 boundary), now 90-7290
 K_TEAM = 150.0
 EPS = 1e-4
 
