@@ -194,7 +194,7 @@ def build_legacy(r: Rounds, as_of_day: float) -> dict[tuple[int, str, str], tupl
     for t in np.unique(team):
         it = team == t
         evs = {}
-        for e, d in zip(ev[it], day[it]):
+        for e, d in zip(ev[it], day[it], strict=True):
             evs[e] = max(evs.get(e, -1e18), d)
         order = sorted(evs, key=evs.get, reverse=True)
         wt = {order[0]: 1.0}

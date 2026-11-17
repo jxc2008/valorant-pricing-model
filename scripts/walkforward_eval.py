@@ -30,22 +30,24 @@ import math
 import sqlite3
 import sys
 from collections import defaultdict
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts.rebuild_half_win_rates import (  # noqa: E402
-    Rates, _days, build, build_legacy, load_rounds,
+    Rates,
+    _days,
+    build,
+    build_legacy,
+    load_rounds,
 )
-from src.config.constants import SHRINK_PRIOR  # noqa: E402
 from src.pricing.data import HalfRates  # noqa: E402
 from src.pricing.live_theo import _within_map_p_a_wins  # noqa: E402
 from src.state.match_state import MatchState  # noqa: E402
 
 HALF_LIVES = [30.0, 60.0, 120.0, 240.0, math.inf]
-K_MAPS = [10.0, 30.0, 90.0]
+K_MAPS = [10.0, 30.0, 90.0, 270.0, 810.0]  # 90 was a boundary optimum in the first run
 K_TEAM = 150.0
 EPS = 1e-4
 
@@ -60,7 +62,7 @@ class _FlatLeague(HalfRates):
 def halfrates_from_v2(r: Rates) -> HalfRates:
     tm = {f"{t}|{m}|{s}": e for (t, m, s), e in r.cells.items()}
     # thin cells with no entry must fall back to the team-offset prior, not the league rate:
-    for (t, s), (n, d) in r.team_side.items():
+    for (t, s), (n, _d) in r.team_side.items():
         if n < 15:
             continue
         for (m, s2) in r.league:
@@ -202,11 +204,19 @@ def predict(ms: list[dict], rounds, variant: str, params: tuple[float, float] | 
                 cache = {day: halfrates_from_v2(build(rounds, day, hl, km, K_TEAM))}
         hr = cache[day]
         pm = [map_p(hr, m["a"], m["b"], m["pool"], i) for i in range(len(m["pool"]))]
+        lookups = []
+        for t in (m["a"], m["b"]):
+            for mapname in m["pool"]:
+                for side in ("atk", "def"):
+                    e = hr.team_rates.get(f"{t}|{mapname}|{side}")
+                    n = float(e.get("total", 0)) if e else 0.0
+                    lookups.append((e is not None and n >= 15, n, int(e.get("raw_rounds", 0)) if e else 0))
         played = []
         for name, ya in m["maps"]:
             if name in m["pool"]:
                 played.append((pm[m["pool"].index(name)], ya))
-        out[m["match_id"]] = {"series": series_p(pm, m["best_of"]), "maps": played}
+        out[m["match_id"]] = {"series": series_p(pm, m["best_of"]), "maps": played,
+                              "lookups": lookups}
     return out
 
 
@@ -265,6 +275,14 @@ def main() -> None:
             for p, y in best_pred[m["match_id"]]["maps"]:
                 mp_rows["v2_log5"].append((p, y))
                 mp_ev.append(m["event_id"])
+        fold["lookup_coverage"] = {}
+        for v, pr in (("legacy", preds["legacy_log5"]), ("v2", best_pred)):
+            lk = [x for m in te for x in pr[m["match_id"]]["lookups"]]
+            fold["lookup_coverage"][v] = {
+                "n_lookups": len(lk),
+                "fallback_share": float(np.mean([not ok for ok, _, _ in lk])),
+                "median_effective_rounds": float(np.median([n for _, n, _ in lk])),
+                "median_raw_rounds": float(np.median([r for _, _, r in lk])) if v == "v2" else None}
         fold["map_level"] = {}
         for v, rows in mp_rows.items():
             p, y = np.array([r[0] for r in rows]), np.array([r[1] for r in rows])
@@ -317,7 +335,32 @@ def main() -> None:
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(report, indent=1))
     print("wrote", a.out)
-    _ = replace, SHRINK_PRIOR
+
+    # Production artifact: v2 rates on ALL data with the latest fold's train-chosen params.
+    # Written beside (not over) the live data/half_win_rates.json.
+    from scripts.rebuild_half_win_rates import to_json
+    last = report["folds"][max(report["folds"])]["chosen"]
+    as_of_day = math.floor(float(rounds.day.max())) + 1
+    final = build(rounds, as_of_day, last["half_life_days"], last["k_map"], K_TEAM)
+    con = sqlite3.connect(a.db)
+    tag_of = {t: (tag or name) for t, tag, name in con.execute("SELECT team_id, tag, name FROM teams")}
+    repo = Path(__file__).resolve().parent.parent
+    v2_path = repo / "data" / "half_win_rates_v2.json"
+    v2_path.write_text(json.dumps(to_json(final, tag_of, "latest data"), indent=1, ensure_ascii=False),
+                       encoding="utf-8")
+    old = json.loads((repo / "data" / "half_win_rates.json").read_text(encoding="utf-8"))["team_map_side"]
+    summ = {
+        "before": {"file": "data/half_win_rates.json", "cells": len(old),
+                   "fallback_share": float(np.mean([bool(e.get("used_fallback")) for e in old.values()])),
+                   "median_rounds": float(np.median([float(e.get("total", 0)) for e in old.values()]))},
+        "after": {"file": "data/half_win_rates_v2.json", "cells": len(final.cells),
+                  "fallback_share": float(np.mean([e["used_fallback"] for e in final.cells.values()])),
+                  "median_rounds": float(np.median([e["raw_rounds"] for e in final.cells.values()])),
+                  "median_effective_rounds": float(np.median([e["total"] for e in final.cells.values()])),
+                  "params": last},
+    }
+    (Path(a.out).parent / "hwr_summary.json").write_text(json.dumps(summ, indent=1))
+    print("wrote", v2_path, "and hwr_summary.json")
 
 
 if __name__ == "__main__":

@@ -72,6 +72,9 @@ ignore = []
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["N802", "N803"]  # test fn / param names may be Pascal-ish
 "scripts/**" = ["N999"]
+# research scripts: math notation (W, N, L, X) and wide result tables
+"scripts/rebuild_half_win_rates.py" = ["N999", "N803", "N806", "E501"]
+"scripts/walkforward_eval.py" = ["N999", "N803", "N806", "E501"]
 
 [tool.ruff.format]
 quote-style = "double"
