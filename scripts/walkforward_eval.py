@@ -89,12 +89,20 @@ def halfrates_from_legacy(cells: dict, flat: bool) -> HalfRates:
     return cls(team_rates=tm, league_rates=lg, overall_avg=0.5)
 
 
-def map_p(hr: HalfRates, a: int, b: int, pool: tuple[str, ...], idx: int) -> float:
-    ms = MatchState(f"{a}-{b}", str(a), str(b), pool, ("a_atk",) * len(pool),
-                    (None,) * len(pool), {}, 0, 0, 0, 0, 0, "a_atk", False, None, None,
-                    None, 0, 0.0)
-    ps = [_within_map_p_a_wins(pool, idx, side, (None,) * len(pool), ms, hr)
-          for side in ("a_atk", "a_def")]
+def map_p(hr: HalfRates, a: int | str, b: int | str, pool: tuple[str, ...], idx: int) -> float:
+    """P(A wins map idx), averaged over A starting atk / def.
+
+    The starting side must be set in MatchState.map_side_orients: _within_map_p_a_wins
+    takes the effective side from there (_RoundPFnImpl._effective_side), so its own
+    ``starting_side`` argument alone does not change the round probabilities.
+    """
+    ps = []
+    for side in ("a_atk", "a_def"):
+        orients = tuple(side if i == idx else "a_atk" for i in range(len(pool)))
+        ms = MatchState(f"{a}-{b}", str(a), str(b), pool, orients,
+                        (None,) * len(pool), {}, 0, 0, 0, 0, 0, side, False, None, None,
+                        None, 0, 0.0)
+        ps.append(_within_map_p_a_wins(pool, idx, side, (None,) * len(pool), ms, hr))
     return 0.5 * (ps[0] + ps[1])
 
 

@@ -95,3 +95,8 @@ data/fills/*
 
 # Autonomous-loop scratch output (operator harness; per-machine)
 .claude-loop-output.tmp
+
+# Shadow-mode outputs (scripts/shadow_quotes.py)
+data/shadow_quotes.db
+data/shadow_quotes.log
+data/shadow_report.md
