@@ -70,6 +70,10 @@ class HalfRates:
     team_rates: dict[str, dict[str, Any]]
     league_rates: dict[str, dict[str, Any]]
     overall_avg: float
+    # True for files built by scripts/rebuild_half_win_rates.py: cell rates are already
+    # hierarchically shrunk (cell -> team-overall side -> league map-side), so team()
+    # must NOT shrink again. Legacy files (flag absent) keep the single-level shrink.
+    pre_shrunk: bool = False
 
     @classmethod
     def from_json(cls, path: str | Path) -> HalfRates:
@@ -88,6 +92,7 @@ class HalfRates:
             team_rates=data.get("team_map_side", {}),
             league_rates=data.get("league_map_side", {}),
             overall_avg=float(data.get("overall_avg", 0.5)),
+            pre_shrunk=bool(data.get("pre_shrunk", False)),
         )
 
     def team(self, team: str, map_name: str, side: str) -> float:
@@ -103,6 +108,8 @@ class HalfRates:
         prior: float = float(lg["rate"]) if lg else self.overall_avg
         team_key = f"{team}|{map_name}|{side}"
         entry = self.team_rates.get(team_key)
+        if entry and self.pre_shrunk:
+            return float(entry["rate"])
         if entry:
             n_val: float = float(entry.get("total", 0))
             raw: float = float(entry["rate"])

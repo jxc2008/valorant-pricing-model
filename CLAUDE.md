@@ -44,7 +44,7 @@ These are non-negotiable design constraints from the PRD. Do not relax without u
 
 1. **Single canonical entry point: `live_theo(state) → TheoOutput(theo_series, theo_map, vega, confidence)`.** Do not recreate the `series_theo` / `series_theo_no_sides` / `series_theo_from_map_probs` triplet from the audited engine. Inconsistent `signal_strength` application across those three was a bug.
 2. **BO3 series and per-map theos come from the same DP** — marginalize the DP for per-map. Never have two independent models that can disagree.
-3. **Bradley-Terry round blend, not arithmetic mean.** `p = a*(1-b) / (a*(1-b) + (1-a)*b)`. The audited engine's `(a + (1-b))/2` under-weights compounding edges.
+3. **Log5 round blend against the league side baseline, not arithmetic mean.** `odds(p) = odds(a) * odds(1-b) / odds(L_side)` with `L_side` = league rate on that map for team A's side (`HalfRates.league`). Bradley-Terry `a*(1-b) / (a*(1-b) + (1-a)*b)` is the special case `L_side = 0.5`; using it on real rates double-counts side advantage. The audited engine's `(a + (1-b))/2` under-weights compounding edges.
 4. **Pistol + anti-eco modeled explicitly.** Rounds 1, 2, 3, 13, 14, 15 use separate probability inputs derived from `match_round_data` and `GUN_WIN_RATE = 0.822`. Constant `p1`/`p2` per half is wrong.
 5. **OT is an explicit hard-stop at total = 24** with documented OT-as-coinflip leaf. Do NOT silently let the DP run past round 24 with `p = 0.5`.
 6. **Conviction clips: `[0.01, 0.99]`** at the boundaries. Document any tighter clip.

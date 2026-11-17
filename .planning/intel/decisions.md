@@ -21,6 +21,7 @@ Synthesized from PRD and SPEC. No ADRs in scope. Decisions inherit precedence fr
 - scope: round probability composition
 - statement: Replace arithmetic mean `(a + (1-b))/2` with `p = a*(1-b) / (a*(1-b) + (1-a)*b)`. Arithmetic mean under-weights compounding edges.
 - corroborating-source: roadmap.md §1.2 (formula and unit-test cases provided)
+- amended 2026-11-16: log5 against league side baseline, `odds(p) = odds(a)·odds(1−b)/odds(L_side)` (prd.md change log). Bradley-Terry is the special case L_side = 0.5.
 
 ## DEC-004 — Half-Kelly sizing with per-market cap
 - source: prd.md §2.3, §9
