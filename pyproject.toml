@@ -35,6 +35,9 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.6.0",
 ]
+research = [
+    "lightgbm>=4.7.0",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -75,6 +78,9 @@ ignore = []
 # research scripts: math notation (W, N, L, X) and wide result tables
 "scripts/rebuild_half_win_rates.py" = ["N999", "N803", "N806", "E501"]
 "scripts/shadow_quotes.py" = ["N999", "N806", "E501"]
+"scripts/rating_eval.py" = ["N999", "N802", "N803", "N806", "E501"]
+# research rating engine: math notation (H, D) and wide lines
+"src/rating/**" = ["N803", "N806", "E501"]
 "scripts/walkforward_eval.py" = ["N999", "N803", "N806", "E501"]
 
 [tool.ruff.format]
