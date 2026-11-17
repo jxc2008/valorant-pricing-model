@@ -77,6 +77,10 @@ class HalfRates(Protocol):
         """Bayesian-shrunk win-rate for ``team`` on ``map_name`` while playing ``side``."""
         ...
 
+    def league(self, map_name: str, side: str) -> float:
+        """League win-rate on ``map_name`` for ``side`` (atk/def complementary)."""
+        ...
+
     def team_entry(
         self, team: str, map_name: str, side: str
     ) -> dict[str, Any] | None:
@@ -141,7 +145,8 @@ def round_p_for_round(
         # Pistol — Phase 1 fallback to half_rates (A8).
         a_rate = half_rates.team(match_state.team_a, map_name, _team_a_side(side))
         b_rate = half_rates.team(match_state.team_b, map_name, _team_b_side(side))
-        return blend.round_p(a_rate, b_rate)
+        l_side = half_rates.league(map_name, _team_a_side(side))
+        return blend.round_p(a_rate, b_rate, l_side)
 
     if round_num in (2, 3, 14, 15):
         pistol_won_by_a = state.pistol_winner_a[state.map_idx]
@@ -155,4 +160,5 @@ def round_p_for_round(
     # Gunround baseline (rounds 4-12, 16-24).
     a_rate = half_rates.team(match_state.team_a, map_name, _team_a_side(side))
     b_rate = half_rates.team(match_state.team_b, map_name, _team_b_side(side))
-    return blend.round_p(a_rate, b_rate)
+    l_side = half_rates.league(map_name, _team_a_side(side))
+    return blend.round_p(a_rate, b_rate, l_side)

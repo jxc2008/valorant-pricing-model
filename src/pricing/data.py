@@ -109,6 +109,18 @@ class HalfRates:
             return (n_val * raw + SHRINK_PRIOR * prior) / (n_val + SHRINK_PRIOR)
         return prior
 
+    def league(self, map_name: str, side: str) -> float:
+        """League win-rate for ``side`` on ``map_name`` (L_side for blend.round_p).
+
+        Defined from the attack rate only, with ``def = 1 - atk``, so the two
+        sides are exactly complementary (required by round_p symmetry). The
+        stored atk/def cells can disagree slightly because they were built from
+        different round subsets. Falls back to ``overall_avg``.
+        """
+        lg = self.league_rates.get(f"{map_name}|atk")
+        atk: float = float(lg["rate"]) if lg else self.overall_avg
+        return atk if side == "atk" else 1.0 - atk
+
     def team_entry(
         self, team: str, map_name: str, side: str
     ) -> Optional[dict[str, Any]]:  # noqa: UP045 — Optional[dict] satisfies Protocol shape

@@ -97,6 +97,9 @@ class _FakeHalfRates:
     def team(self, team: str, map_name: str, side: str) -> float:
         return 0.5
 
+    def league(self, map_name: str, side: str) -> float:
+        return 0.5
+
     def team_entry(
         self, team: str, map_name: str, side: str
     ) -> dict[str, Any] | None:

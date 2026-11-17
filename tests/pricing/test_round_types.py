@@ -72,6 +72,9 @@ class _FakeMatchState:
     team_b: str = "TeamB"
 
 
+_LEAGUE_ATK = 0.53
+
+
 class _FakeHalfRates:
     """In-memory HalfRates Protocol implementation.
 
@@ -88,6 +91,10 @@ class _FakeHalfRates:
 
     def team(self, team: str, map_name: str, side: str) -> float:
         return self._rates.get((team, map_name, side), 0.5)
+
+    def league(self, map_name: str, side: str) -> float:
+        # Deliberately != 0.5 and side-dependent so a wrong-side L fails tests.
+        return _LEAGUE_ATK if side == "atk" else 1.0 - _LEAGUE_ATK
 
     def team_entry(
         self, team: str, map_name: str, side: str
@@ -148,7 +155,7 @@ def test_round_1_pistol_uses_half_rates_blend() -> None:
     half_rates.set("TeamA", "Lotus", "atk", 0.55)
     half_rates.set("TeamB", "Lotus", "def", 0.50)
     state = _state(a_round=0, b_round=0, side_orient="a_atk")
-    expected = blend.round_p(0.55, 0.50)
+    expected = blend.round_p(0.55, 0.50, _LEAGUE_ATK)  # A on atk
     actual = round_p_for_round(state, _FakeMatchState(), half_rates)  # type: ignore[arg-type]
     assert math.isclose(actual, expected, rel_tol=1e-12)
 
@@ -161,7 +168,7 @@ def test_round_13_pistol_uses_flipped_side() -> None:
     half_rates.set("TeamA", "Lotus", "def", 0.45)
     half_rates.set("TeamB", "Lotus", "atk", 0.60)
     state = _state(a_round=12, b_round=0, side_orient="a_def")
-    expected = blend.round_p(0.45, 0.60)
+    expected = blend.round_p(0.45, 0.60, 1.0 - _LEAGUE_ATK)  # A on def
     actual = round_p_for_round(state, _FakeMatchState(), half_rates)  # type: ignore[arg-type]
     assert math.isclose(actual, expected, rel_tol=1e-12)
 
@@ -261,7 +268,9 @@ def test_gunround_uses_half_rates_blend(
         side_orient=side_orient,
         pistol_winner_a=(None, None, None),  # gunround ignores this
     )
-    expected = blend.round_p(0.52, 0.48)
+    expected = blend.round_p(
+        0.52, 0.48, _LEAGUE_ATK if a_side == "atk" else 1.0 - _LEAGUE_ATK
+    )
     actual = round_p_for_round(state, _FakeMatchState(), half_rates)  # type: ignore[arg-type]
     assert math.isclose(actual, expected, rel_tol=1e-12)
 

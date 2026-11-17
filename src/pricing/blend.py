@@ -1,7 +1,9 @@
 """Bradley-Terry round-win-probability blend.
 
-Replaces the audit-engine arithmetic-mean blend ``(a + (1-b)) / 2`` with the
-log-odds form ``a*(1-b) / (a*(1-b) + (1-a)*b)``.
+Replaces the audit-engine arithmetic-mean blend ``(a + (1-b)) / 2`` with a
+log-odds (log5) form against the league side baseline:
+``odds(p) = odds(a) * odds(1-b) / odds(L_side)``. With ``L_side = 0.5`` this is
+Bradley-Terry ``a*(1-b) / (a*(1-b) + (1-a)*b)``.
 
 Sources
 -------
@@ -19,7 +21,7 @@ correctly capturing that compounding edges multiply rather than average.
 
 Why clip inputs only, never outputs
 -----------------------------------
-``round_p(a, b) + round_p(b, a) == 1`` is required for downstream symmetry
+``round_p(a, b, L) + round_p(b, a, 1-L) == 1`` is required for downstream symmetry
 (the DP relies on this in `series_value` recurrences). Clipping the OUTPUT
 breaks this identity (``0.999... → 0.99`` does not pair with
 ``0.001... → 0.01`` for ``1 - x``). Clipping inputs symmetrically preserves
@@ -35,25 +37,35 @@ from __future__ import annotations
 from src.config.constants import BT_BLEND_EPSILON
 
 
-def round_p(a_rate: float, b_rate_opposite_side: float) -> float:
-    """P(team A wins one round) given A's rate on its side and B's rate on opposite side.
+def _odds(x: float) -> float:
+    return x / (1.0 - x)
+
+
+def _clip(x: float) -> float:
+    return max(BT_BLEND_EPSILON, min(1.0 - BT_BLEND_EPSILON, x))
+
+
+def round_p(a_rate: float, b_rate_opposite_side: float, league_side_rate: float) -> float:
+    """P(team A wins one round), log5 against the league side baseline.
+
+    ``odds(p) = odds(a) * odds(1 - b) / odds(L_side)``
 
     Args:
-        a_rate: Team A's empirical win-rate on the side it plays this round.
-            Must be in ``[0.0, 1.0]`` (will be clipped to
-            ``[BT_BLEND_EPSILON, 1 - BT_BLEND_EPSILON]`` internally).
-        b_rate_opposite_side: Team B's empirical win-rate on the OPPOSITE side
-            (i.e., the side B plays while A is on `side`). Same bounds.
+        a_rate: Team A's win-rate on the side it plays this round, on this map.
+        b_rate_opposite_side: Team B's win-rate on the opposite side, same map.
+        league_side_rate: League win-rate for the side TEAM A plays (L_side),
+            on this map. Both team rates already embed this side advantage;
+            dividing by ``odds(L_side)`` once removes the double count. The
+            previous form ``odds(a)*odds(1-b)`` implicitly assumed L_side=0.5.
 
-    Returns:
-        ``(a*(1-b)) / (a*(1-b) + (1-a)*b)`` after BT_BLEND_EPSILON input clip.
-        Always finite, in ``(0.0, 1.0)``. NEVER clipped on output (CON-bradley-
-        terry-formula / 01-RESEARCH.md §3 Pitfall 4 — preserves BT symmetry
-        ``round_p(a, b) + round_p(b, a) == 1``).
+    Invariants (tests/pricing/test_blend.py):
+        - league-average teams: ``round_p(L, 1-L, L) == L``
+        - symmetry: ``round_p(a, b, L) + round_p(b, a, 1-L) == 1``
+        - reduces to Bradley-Terry ``a(1-b)/(a(1-b)+(1-a)b)`` when L = 0.5
 
-    Notes:
-        DO NOT call this with the arithmetic-mean form. See module docstring.
+    All three inputs are clipped to ``[BT_BLEND_EPSILON, 1-BT_BLEND_EPSILON]``;
+    the output is never clipped (see module docstring).
     """
-    a = max(BT_BLEND_EPSILON, min(1.0 - BT_BLEND_EPSILON, a_rate))
-    b = max(BT_BLEND_EPSILON, min(1.0 - BT_BLEND_EPSILON, b_rate_opposite_side))
-    return (a * (1.0 - b)) / (a * (1.0 - b) + (1.0 - a) * b)
+    a, b, lg = _clip(a_rate), _clip(b_rate_opposite_side), _clip(league_side_rate)
+    o = _odds(a) * _odds(1.0 - b) / _odds(lg)
+    return o / (1.0 + o)
